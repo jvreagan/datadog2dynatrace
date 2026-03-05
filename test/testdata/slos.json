@@ -1,0 +1,33 @@
+{
+  "data": [
+    {
+      "id": "slo-001",
+      "name": "Payment API Availability",
+      "description": "Payment API should have 99.9% success rate",
+      "type": "metric",
+      "tags": ["service:payment-api", "env:prod"],
+      "query": {
+        "numerator": "sum:trace.servlet.request.hits{service:payment-api}.as_count() - sum:trace.servlet.request.errors{service:payment-api}.as_count()",
+        "denominator": "sum:trace.servlet.request.hits{service:payment-api}.as_count()"
+      },
+      "thresholds": [
+        {"timeframe": "7d", "target": 99.9, "warning": 99.95},
+        {"timeframe": "30d", "target": 99.9, "warning": 99.95}
+      ]
+    },
+    {
+      "id": "slo-002",
+      "name": "Homepage Latency P99",
+      "description": "99th percentile response time for homepage below 500ms",
+      "type": "metric",
+      "tags": ["service:web-frontend", "env:prod"],
+      "query": {
+        "numerator": "sum:trace.http.request.hits{service:web-frontend,@http.status_code:2*}.as_count()",
+        "denominator": "sum:trace.http.request.hits{service:web-frontend}.as_count()"
+      },
+      "thresholds": [
+        {"timeframe": "30d", "target": 99.5, "warning": 99.7}
+      ]
+    }
+  ]
+}

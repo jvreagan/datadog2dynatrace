@@ -1,0 +1,24 @@
+[
+  {
+    "id": 50001,
+    "message": "Weekly deployment maintenance window",
+    "scope": ["env:prod"],
+    "start": 1709683200,
+    "end": 1709690400,
+    "timezone": "America/New_York",
+    "recurrence": {
+      "type": "weeks",
+      "period": 1,
+      "week_days": ["Tue"]
+    }
+  },
+  {
+    "id": 50002,
+    "message": "One-time DB migration downtime",
+    "monitor_tags": ["service:payment-api"],
+    "scope": ["service:payment-api"],
+    "start": 1710288000,
+    "end": 1710295200,
+    "timezone": "UTC"
+  }
+]

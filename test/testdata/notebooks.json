@@ -1,0 +1,49 @@
+[
+  {
+    "id": 70001,
+    "name": "Production Incident Runbook",
+    "author": {"handle": "oncall@example.com", "name": "On-Call Engineer"},
+    "cells": [
+      {
+        "id": "cell-1",
+        "type": "markdown",
+        "attributes": {
+          "definition": {
+            "text": "# Production Incident Runbook\n\nUse this notebook to investigate production incidents.\n\n## Step 1: Check CPU and Memory"
+          }
+        }
+      },
+      {
+        "id": "cell-2",
+        "type": "timeseries",
+        "attributes": {
+          "definition": {
+            "requests": [
+              {"q": "avg:system.cpu.user{env:prod} by {host}"}
+            ]
+          }
+        }
+      },
+      {
+        "id": "cell-3",
+        "type": "markdown",
+        "attributes": {
+          "definition": {
+            "text": "## Step 2: Check Error Rates\n\nLook for spikes in error rates across services."
+          }
+        }
+      },
+      {
+        "id": "cell-4",
+        "type": "timeseries",
+        "attributes": {
+          "definition": {
+            "requests": [
+              {"q": "sum:trace.servlet.request.errors{env:prod} by {service}.as_count()"}
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

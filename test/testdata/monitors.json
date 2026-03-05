@@ -1,0 +1,68 @@
+[
+  {
+    "id": 10001,
+    "name": "High CPU on Production Hosts",
+    "type": "metric alert",
+    "query": "avg(last_5m):avg:system.cpu.user{env:prod} by {host} > 90",
+    "message": "CPU is above 90% on {{host.name}}. Please investigate.\n@slack-ops-alerts @pagerduty-oncall",
+    "tags": ["env:prod", "team:platform", "severity:critical"],
+    "options": {
+      "thresholds": {
+        "critical": 90.0,
+        "warning": 75.0,
+        "critical_recovery": 80.0,
+        "warning_recovery": 65.0
+      },
+      "notify_no_data": true,
+      "no_data_timeframe": 10,
+      "renotify_interval": 30,
+      "include_tags": true,
+      "evaluation_delay": 60
+    }
+  },
+  {
+    "id": 10002,
+    "name": "Memory Usage Above 85%",
+    "type": "metric alert",
+    "query": "avg(last_10m):avg:system.mem.used{env:prod} by {host} > 85",
+    "message": "Memory usage is above 85% on {{host.name}}.\n@slack-ops-alerts",
+    "tags": ["env:prod", "team:platform"],
+    "options": {
+      "thresholds": {
+        "critical": 85.0,
+        "warning": 70.0
+      },
+      "notify_no_data": false,
+      "renotify_interval": 60
+    }
+  },
+  {
+    "id": 10003,
+    "name": "Kubernetes Pod Restarts",
+    "type": "metric alert",
+    "query": "sum(last_15m):sum:kubernetes.containers.restarts{kube_cluster_name:prod} by {kube_namespace,pod_name} > 5",
+    "message": "Pod {{pod_name.name}} in {{kube_namespace.name}} has restarted more than 5 times.\n@slack-k8s-alerts",
+    "tags": ["env:prod", "team:k8s"],
+    "options": {
+      "thresholds": {
+        "critical": 5.0,
+        "warning": 3.0
+      },
+      "notify_no_data": false
+    }
+  },
+  {
+    "id": 10004,
+    "name": "Service Error Rate Spike",
+    "type": "metric alert",
+    "query": "avg(last_5m):sum:trace.servlet.request.errors{service:payment-api}.as_count() / sum:trace.servlet.request.hits{service:payment-api}.as_count() > 0.05",
+    "message": "Error rate for payment-api exceeds 5%.\n@pagerduty-oncall",
+    "tags": ["service:payment-api", "severity:critical"],
+    "options": {
+      "thresholds": {
+        "critical": 0.05,
+        "warning": 0.02
+      }
+    }
+  }
+]

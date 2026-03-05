@@ -1,0 +1,129 @@
+[
+  {
+    "id": "abc-123-def",
+    "title": "Production Infrastructure Overview",
+    "description": "Main production monitoring dashboard",
+    "layout_type": "ordered",
+    "widgets": [
+      {
+        "id": 1001,
+        "definition": {
+          "type": "timeseries",
+          "title": "CPU Usage by Host",
+          "requests": [
+            {
+              "q": "avg:system.cpu.user{env:prod} by {host}",
+              "display_type": "line",
+              "style": {
+                "palette": "dog_classic",
+                "line_type": "solid",
+                "line_width": "normal"
+              }
+            }
+          ]
+        },
+        "layout": {"x": 0, "y": 0, "width": 6, "height": 3}
+      },
+      {
+        "id": 1002,
+        "definition": {
+          "type": "query_value",
+          "title": "Current Memory Usage",
+          "requests": [
+            {
+              "q": "avg:system.mem.used{env:prod}",
+              "display_type": "line"
+            }
+          ],
+          "precision": 2,
+          "autoscale": true
+        },
+        "layout": {"x": 6, "y": 0, "width": 3, "height": 3}
+      },
+      {
+        "id": 1003,
+        "definition": {
+          "type": "toplist",
+          "title": "Top 10 Hosts by CPU",
+          "requests": [
+            {
+              "q": "top(avg:system.cpu.user{*} by {host}, 10, 'mean', 'desc')"
+            }
+          ]
+        },
+        "layout": {"x": 0, "y": 3, "width": 6, "height": 3}
+      },
+      {
+        "id": 1004,
+        "definition": {
+          "type": "note",
+          "content": "## Network Metrics\nMonitoring inbound and outbound traffic",
+          "font_size": "14",
+          "text_align": "left"
+        },
+        "layout": {"x": 0, "y": 6, "width": 12, "height": 1}
+      },
+      {
+        "id": 1005,
+        "definition": {
+          "type": "timeseries",
+          "title": "Network Traffic In/Out",
+          "requests": [
+            {
+              "q": "per_second(sum:system.net.bytes_rcvd{env:prod} by {host})",
+              "display_type": "area"
+            },
+            {
+              "q": "per_second(sum:system.net.bytes_sent{env:prod} by {host})",
+              "display_type": "area"
+            }
+          ]
+        },
+        "layout": {"x": 0, "y": 7, "width": 12, "height": 3}
+      },
+      {
+        "id": 1006,
+        "definition": {
+          "type": "timeseries",
+          "title": "K8s Pod CPU by Namespace",
+          "requests": [
+            {
+              "q": "avg:kubernetes.cpu.usage.total{kube_cluster_name:prod} by {kube_namespace}"
+            }
+          ]
+        },
+        "layout": {"x": 0, "y": 10, "width": 6, "height": 3}
+      },
+      {
+        "id": 1007,
+        "definition": {
+          "type": "timeseries",
+          "title": "Docker Memory RSS",
+          "requests": [
+            {
+              "q": "avg:docker.mem.rss{env:prod}.rollup(max, 300) by {container_name}"
+            }
+          ]
+        },
+        "layout": {"x": 6, "y": 10, "width": 6, "height": 3}
+      },
+      {
+        "id": 1008,
+        "definition": {
+          "type": "timeseries",
+          "title": "Service Request Rate",
+          "requests": [
+            {
+              "q": "sum:trace.servlet.request.hits{service:payment-api}.as_count().rollup(sum, 60)"
+            }
+          ]
+        },
+        "layout": {"x": 0, "y": 13, "width": 6, "height": 3}
+      }
+    ],
+    "template_variables": [
+      {"name": "env", "prefix": "env", "default": "prod"},
+      {"name": "host", "prefix": "host", "default": "*"}
+    ]
+  }
+]

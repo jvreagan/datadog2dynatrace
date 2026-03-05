@@ -1,0 +1,41 @@
+[
+  {
+    "id": "pipeline-001",
+    "name": "Nginx Access Logs",
+    "is_enabled": true,
+    "filter": {"query": "source:nginx"},
+    "processors": [
+      {
+        "type": "grok-parser",
+        "name": "Parse Nginx Access Log",
+        "is_enabled": true,
+        "sources": ["message"],
+        "grok": {
+          "support_rules": "",
+          "match_rules": "%{ip:network.client.ip} - %{notSpace:http.ident} \\[%{date(\"dd/MMM/yyyy:HH:mm:ss Z\"):date}\\] \"%{word:http.method} %{notSpace:http.url} HTTP/%{number:http.version}\" %{integer:http.status_code} %{integer:network.bytes_written}"
+        }
+      },
+      {
+        "type": "status-remapper",
+        "name": "Set log severity from status code",
+        "is_enabled": true,
+        "sources": ["http.status_code"]
+      }
+    ]
+  },
+  {
+    "id": "pipeline-002",
+    "name": "Application Error Logs",
+    "is_enabled": true,
+    "filter": {"query": "service:payment-api status:error"},
+    "processors": [
+      {
+        "type": "attribute-remapper",
+        "name": "Remap exception.type to error.kind",
+        "is_enabled": true,
+        "sources": ["exception.type"],
+        "target": "error.kind"
+      }
+    ]
+  }
+]
