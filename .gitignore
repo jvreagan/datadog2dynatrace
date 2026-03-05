@@ -1,0 +1,14 @@
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+.DS_Store
+.env
+.datadog2dynatrace.yaml
+dynatrace-terraform/
+migration-report.md
