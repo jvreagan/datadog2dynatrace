@@ -202,6 +202,19 @@ func TestTranslateMetricName(t *testing.T) {
 		"custom.my_metric":                 "ext:custom.my_metric",
 		"system.swap.used":                 "builtin:host.mem.swap.used",
 		"kubernetes.containers.restarts":   "builtin:cloud.kubernetes.workload.containerRestarts",
+		// AWS
+		"aws.ec2.cpuutilization":           "ext:cloud.aws.ec2.cpuUtilization",
+		"aws.elb.request_count":            "ext:cloud.aws.elb.requestCount",
+		"aws.rds.cpuutilization":           "ext:cloud.aws.rds.cpuUtilization",
+		// JVM
+		"jvm.heap_memory":                  "builtin:tech.jvm.memory.heap.used",
+		"jvm.thread_count":                 "builtin:tech.jvm.threads.count",
+		// gRPC traces
+		"trace.grpc.request.hits":          "builtin:service.requestCount.total",
+		"trace.grpc.request.duration":      "builtin:service.response.time",
+		// Process
+		"process.cpu.pct":                  "builtin:process.cpu.usage",
+		"process.mem.rss":                  "builtin:process.memory.resident",
 	}
 
 	for dd, expected := range tests {

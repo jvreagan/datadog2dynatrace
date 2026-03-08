@@ -47,17 +47,57 @@ func (r *Report) SetDryRun(dryRun bool) {
 // AddExtractionSummary adds a summary of extracted DataDog resources.
 func (r *Report) AddExtractionSummary(ext *datadog.ExtractionResult) {
 	var sb strings.Builder
-	sb.WriteString("| Resource Type | Count |\n")
-	sb.WriteString("|---|---|\n")
-	sb.WriteString(fmt.Sprintf("| Dashboards | %d |\n", len(ext.Dashboards)))
-	sb.WriteString(fmt.Sprintf("| Monitors | %d |\n", len(ext.Monitors)))
-	sb.WriteString(fmt.Sprintf("| SLOs | %d |\n", len(ext.SLOs)))
-	sb.WriteString(fmt.Sprintf("| Synthetic Tests | %d |\n", len(ext.Synthetics)))
-	sb.WriteString(fmt.Sprintf("| Log Pipelines | %d |\n", len(ext.LogPipelines)))
-	sb.WriteString(fmt.Sprintf("| Metric Metadata | %d |\n", len(ext.Metrics)))
-	sb.WriteString(fmt.Sprintf("| Downtimes | %d |\n", len(ext.Downtimes)))
-	sb.WriteString(fmt.Sprintf("| Notification Channels | %d |\n", len(ext.Notifications)))
-	sb.WriteString(fmt.Sprintf("| Notebooks | %d |\n", len(ext.Notebooks)))
+	sb.WriteString("| Resource Type | Count | Names |\n")
+	sb.WriteString("|---|---|---|\n")
+
+	dashNames := make([]string, len(ext.Dashboards))
+	for i, d := range ext.Dashboards {
+		dashNames[i] = d.Title
+	}
+	sb.WriteString(fmt.Sprintf("| Dashboards | %d | %s |\n", len(ext.Dashboards), joinResourceNames(dashNames)))
+
+	monNames := make([]string, len(ext.Monitors))
+	for i, m := range ext.Monitors {
+		monNames[i] = m.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Monitors | %d | %s |\n", len(ext.Monitors), joinResourceNames(monNames)))
+
+	sloNames := make([]string, len(ext.SLOs))
+	for i, s := range ext.SLOs {
+		sloNames[i] = s.Name
+	}
+	sb.WriteString(fmt.Sprintf("| SLOs | %d | %s |\n", len(ext.SLOs), joinResourceNames(sloNames)))
+
+	synNames := make([]string, len(ext.Synthetics))
+	for i, s := range ext.Synthetics {
+		synNames[i] = s.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Synthetic Tests | %d | %s |\n", len(ext.Synthetics), joinResourceNames(synNames)))
+
+	pipeNames := make([]string, len(ext.LogPipelines))
+	for i, p := range ext.LogPipelines {
+		pipeNames[i] = p.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Log Pipelines | %d | %s |\n", len(ext.LogPipelines), joinResourceNames(pipeNames)))
+	sb.WriteString(fmt.Sprintf("| Metric Metadata | %d | |\n", len(ext.Metrics)))
+
+	dtNames := make([]string, len(ext.Downtimes))
+	for i, d := range ext.Downtimes {
+		dtNames[i] = d.Message
+	}
+	sb.WriteString(fmt.Sprintf("| Downtimes | %d | %s |\n", len(ext.Downtimes), joinResourceNames(dtNames)))
+
+	notifNames := make([]string, len(ext.Notifications))
+	for i, n := range ext.Notifications {
+		notifNames[i] = n.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Notification Channels | %d | %s |\n", len(ext.Notifications), joinResourceNames(notifNames)))
+
+	nbNames := make([]string, len(ext.Notebooks))
+	for i, n := range ext.Notebooks {
+		nbNames[i] = n.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Notebooks | %d | %s |\n", len(ext.Notebooks), joinResourceNames(nbNames)))
 
 	r.sections = append(r.sections, section{
 		title:   "Extracted Resources (DataDog)",
@@ -68,17 +108,57 @@ func (r *Report) AddExtractionSummary(ext *datadog.ExtractionResult) {
 // AddConversionSummary adds a summary of converted Dynatrace resources.
 func (r *Report) AddConversionSummary(result *dynatrace.ConversionResult) {
 	var sb strings.Builder
-	sb.WriteString("| Resource Type | Count |\n")
-	sb.WriteString("|---|---|\n")
-	sb.WriteString(fmt.Sprintf("| Dashboards | %d |\n", len(result.Dashboards)))
-	sb.WriteString(fmt.Sprintf("| Metric Events | %d |\n", len(result.MetricEvents)))
-	sb.WriteString(fmt.Sprintf("| SLOs | %d |\n", len(result.SLOs)))
-	sb.WriteString(fmt.Sprintf("| Synthetic Monitors | %d |\n", len(result.Synthetics)))
-	sb.WriteString(fmt.Sprintf("| Log Processing Rules | %d |\n", len(result.LogRules)))
-	sb.WriteString(fmt.Sprintf("| Metric Descriptors | %d |\n", len(result.Metrics)))
-	sb.WriteString(fmt.Sprintf("| Maintenance Windows | %d |\n", len(result.Maintenance)))
-	sb.WriteString(fmt.Sprintf("| Notifications | %d |\n", len(result.Notifications)))
-	sb.WriteString(fmt.Sprintf("| Notebooks | %d |\n", len(result.Notebooks)))
+	sb.WriteString("| Resource Type | Count | Names |\n")
+	sb.WriteString("|---|---|---|\n")
+
+	dashNames := make([]string, len(result.Dashboards))
+	for i, d := range result.Dashboards {
+		dashNames[i] = d.DashboardMetadata.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Dashboards | %d | %s |\n", len(result.Dashboards), joinResourceNames(dashNames)))
+
+	meNames := make([]string, len(result.MetricEvents))
+	for i, me := range result.MetricEvents {
+		meNames[i] = me.Summary
+	}
+	sb.WriteString(fmt.Sprintf("| Metric Events | %d | %s |\n", len(result.MetricEvents), joinResourceNames(meNames)))
+
+	sloNames := make([]string, len(result.SLOs))
+	for i, s := range result.SLOs {
+		sloNames[i] = s.Name
+	}
+	sb.WriteString(fmt.Sprintf("| SLOs | %d | %s |\n", len(result.SLOs), joinResourceNames(sloNames)))
+
+	synNames := make([]string, len(result.Synthetics))
+	for i, s := range result.Synthetics {
+		synNames[i] = s.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Synthetic Monitors | %d | %s |\n", len(result.Synthetics), joinResourceNames(synNames)))
+
+	lrNames := make([]string, len(result.LogRules))
+	for i, lr := range result.LogRules {
+		lrNames[i] = lr.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Log Processing Rules | %d | %s |\n", len(result.LogRules), joinResourceNames(lrNames)))
+	sb.WriteString(fmt.Sprintf("| Metric Descriptors | %d | |\n", len(result.Metrics)))
+
+	mwNames := make([]string, len(result.Maintenance))
+	for i, mw := range result.Maintenance {
+		mwNames[i] = mw.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Maintenance Windows | %d | %s |\n", len(result.Maintenance), joinResourceNames(mwNames)))
+
+	nNames := make([]string, len(result.Notifications))
+	for i, n := range result.Notifications {
+		nNames[i] = n.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Notifications | %d | %s |\n", len(result.Notifications), joinResourceNames(nNames)))
+
+	nbNames := make([]string, len(result.Notebooks))
+	for i, nb := range result.Notebooks {
+		nbNames[i] = nb.Name
+	}
+	sb.WriteString(fmt.Sprintf("| Notebooks | %d | %s |\n", len(result.Notebooks), joinResourceNames(nbNames)))
 
 	r.sections = append(r.sections, section{
 		title:   "Converted Resources (Dynatrace)",
@@ -120,6 +200,72 @@ func (r *Report) AddPushErrors(errs []error) {
 		title:   "Push Errors",
 		content: sb.String(),
 	})
+}
+
+// AddDashboardDetails adds per-dashboard tile type breakdown.
+func (r *Report) AddDashboardDetails(dashboards []dynatrace.Dashboard) {
+	if len(dashboards) == 0 {
+		return
+	}
+
+	var sb strings.Builder
+	for _, d := range dashboards {
+		tileCounts := map[string]int{}
+		for _, t := range d.Tiles {
+			tileCounts[t.TileType]++
+		}
+		sb.WriteString(fmt.Sprintf("### %s\n\n", d.DashboardMetadata.Name))
+		sb.WriteString(fmt.Sprintf("Total tiles: %d\n\n", len(d.Tiles)))
+		for tileType, count := range tileCounts {
+			sb.WriteString(fmt.Sprintf("- %s: %d\n", tileType, count))
+		}
+		sb.WriteString("\n")
+	}
+
+	r.sections = append(r.sections, section{
+		title:   "Dashboard Details",
+		content: sb.String(),
+	})
+}
+
+// AddDQLQueryNotes scans dashboard MARKDOWN tiles for DQL patterns
+// and lists queries that may need attention in a Dynatrace Notebook.
+func (r *Report) AddDQLQueryNotes(dashboards []dynatrace.Dashboard) {
+	var notes []string
+	for _, d := range dashboards {
+		for _, t := range d.Tiles {
+			if t.TileType == "MARKDOWN" && strings.Contains(t.Markdown, "fetch logs") {
+				notes = append(notes, fmt.Sprintf("- Dashboard %q, tile %q contains a DQL query that requires a Dynatrace Notebook", d.DashboardMetadata.Name, t.Name))
+			}
+		}
+	}
+
+	if len(notes) == 0 {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("The following tiles contain DQL queries that cannot be displayed in classic Dynatrace dashboards.\nUse **Dynatrace Notebooks** to run these queries:\n\n")
+	for _, note := range notes {
+		sb.WriteString(note + "\n")
+	}
+
+	r.sections = append(r.sections, section{
+		title:   "DQL Query Notes",
+		content: sb.String(),
+	})
+}
+
+// joinResourceNames joins up to 5 names, appending "+N more" if truncated.
+func joinResourceNames(names []string) string {
+	if len(names) == 0 {
+		return ""
+	}
+	limit := 5
+	if len(names) <= limit {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:limit], ", ") + fmt.Sprintf(" +%d more", len(names)-limit)
 }
 
 // WriteToFile writes the report to a Markdown file.

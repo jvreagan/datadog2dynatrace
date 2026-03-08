@@ -25,20 +25,26 @@ func NewClient(apiKey, appKey, site string) *Client {
 	if site == "" {
 		site = "datadoghq.com"
 	}
+	baseURL := fmt.Sprintf("https://api.%s", site)
+	return newClientWithConfig(apiKey, appKey, baseURL, ratelimit.Config{
+		RequestsPerSecond: 5,
+		MaxRetries:        5,
+		InitialBackoff:    1 * time.Second,
+		MaxBackoff:        60 * time.Second,
+	})
+}
+
+// newClientWithConfig creates a client with a given baseURL and rate limiter config (for testing).
+func newClientWithConfig(apiKey, appKey, baseURL string, cfg ratelimit.Config) *Client {
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 	return &Client{
 		apiKey:     apiKey,
 		appKey:     appKey,
-		baseURL:    fmt.Sprintf("https://api.%s", site),
+		baseURL:    baseURL,
 		httpClient: httpClient,
-		limiter: ratelimit.New(httpClient, ratelimit.Config{
-			RequestsPerSecond: 5,
-			MaxRetries:        5,
-			InitialBackoff:    1 * time.Second,
-			MaxBackoff:        60 * time.Second,
-		}),
+		limiter:    ratelimit.New(httpClient, cfg),
 	}
 }
 

@@ -124,6 +124,134 @@ func TestReportWriteToFile(t *testing.T) {
 	}
 }
 
+func TestReportExtractionSummaryWithNames(t *testing.T) {
+	r := New()
+	ext := &datadog.ExtractionResult{
+		Dashboards: []datadog.Dashboard{
+			{Title: "Dash A"},
+			{Title: "Dash B"},
+		},
+		Monitors: []datadog.Monitor{
+			{Name: "Mon 1"},
+		},
+	}
+	r.AddExtractionSummary(ext)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "Dash A") {
+		t.Error("expected 'Dash A' in extraction summary")
+	}
+	if !strings.Contains(content, "Dash B") {
+		t.Error("expected 'Dash B' in extraction summary")
+	}
+	if !strings.Contains(content, "Mon 1") {
+		t.Error("expected 'Mon 1' in extraction summary")
+	}
+}
+
+func TestReportDashboardDetails(t *testing.T) {
+	r := New()
+	dashboards := []dynatrace.Dashboard{
+		{
+			DashboardMetadata: dynatrace.DashboardMetadata{Name: "Test Dash"},
+			Tiles: []dynatrace.Tile{
+				{TileType: "DATA_EXPLORER", Name: "CPU"},
+				{TileType: "DATA_EXPLORER", Name: "Memory"},
+				{TileType: "MARKDOWN", Name: "Notes"},
+			},
+		},
+	}
+	r.AddDashboardDetails(dashboards)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "Test Dash") {
+		t.Error("expected dashboard name in details")
+	}
+	if !strings.Contains(content, "DATA_EXPLORER") {
+		t.Error("expected DATA_EXPLORER tile type in details")
+	}
+	if !strings.Contains(content, "Total tiles: 3") {
+		t.Error("expected 'Total tiles: 3' in details")
+	}
+}
+
+func TestReportDQLQueryNotes(t *testing.T) {
+	r := New()
+	dashboards := []dynatrace.Dashboard{
+		{
+			DashboardMetadata: dynatrace.DashboardMetadata{Name: "Log Dashboard"},
+			Tiles: []dynatrace.Tile{
+				{TileType: "MARKDOWN", Name: "Log Errors", Markdown: "fetch logs\n| filter loglevel == \"ERROR\""},
+				{TileType: "DATA_EXPLORER", Name: "CPU"},
+			},
+		},
+	}
+	r.AddDQLQueryNotes(dashboards)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "DQL Query Notes") {
+		t.Error("expected DQL Query Notes section")
+	}
+	if !strings.Contains(content, "Log Dashboard") {
+		t.Error("expected dashboard name in DQL notes")
+	}
+	if !strings.Contains(content, "Log Errors") {
+		t.Error("expected tile name in DQL notes")
+	}
+}
+
+func TestJoinResourceNamesTruncation(t *testing.T) {
+	r := New()
+	ext := &datadog.ExtractionResult{
+		Dashboards: []datadog.Dashboard{
+			{Title: "D1"}, {Title: "D2"}, {Title: "D3"},
+			{Title: "D4"}, {Title: "D5"}, {Title: "D6"}, {Title: "D7"},
+		},
+	}
+	r.AddExtractionSummary(ext)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "+2 more") {
+		t.Error("expected '+2 more' for truncated names")
+	}
+}
+
 type errString string
 
 func (e errString) Error() string { return string(e) }

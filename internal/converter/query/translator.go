@@ -312,6 +312,52 @@ func TranslateMetricName(ddMetric string) string {
 		"redis.keys.evicted":           "builtin:tech.redis.evictedKeys",
 		// PostgreSQL
 		"postgresql.connections":        "builtin:tech.postgresql.connections",
+		// AWS CloudWatch - EC2
+		"aws.ec2.cpuutilization":           "ext:cloud.aws.ec2.cpuUtilization",
+		"aws.ec2.disk_read_ops":            "ext:cloud.aws.ec2.diskReadOps",
+		"aws.ec2.disk_write_ops":           "ext:cloud.aws.ec2.diskWriteOps",
+		"aws.ec2.network_in":               "ext:cloud.aws.ec2.networkIn",
+		"aws.ec2.network_out":              "ext:cloud.aws.ec2.networkOut",
+		"aws.ec2.status_check_failed":      "ext:cloud.aws.ec2.statusCheckFailed",
+		// AWS CloudWatch - ELB
+		"aws.elb.request_count":            "ext:cloud.aws.elb.requestCount",
+		"aws.elb.latency":                  "ext:cloud.aws.elb.latency",
+		"aws.elb.httpcode_backend_5xx":     "ext:cloud.aws.elb.httpCode5xx",
+		"aws.elb.healthy_host_count":       "ext:cloud.aws.elb.healthyHostCount",
+		"aws.elb.unhealthy_host_count":     "ext:cloud.aws.elb.unhealthyHostCount",
+		// AWS CloudWatch - RDS
+		"aws.rds.cpuutilization":           "ext:cloud.aws.rds.cpuUtilization",
+		"aws.rds.database_connections":     "ext:cloud.aws.rds.databaseConnections",
+		"aws.rds.free_storage_space":       "ext:cloud.aws.rds.freeStorageSpace",
+		"aws.rds.read_iops":                "ext:cloud.aws.rds.readIOPS",
+		"aws.rds.write_iops":               "ext:cloud.aws.rds.writeIOPS",
+		// More APM / Traces
+		"trace.grpc.request.hits":          "builtin:service.requestCount.total",
+		"trace.grpc.request.errors":        "builtin:service.errors.total.count",
+		"trace.grpc.request.duration":      "builtin:service.response.time",
+		"trace.redis.request.hits":         "builtin:service.requestCount.total",
+		"trace.redis.request.errors":       "builtin:service.errors.total.count",
+		"trace.redis.request.duration":     "builtin:service.response.time",
+		"trace.pg.request.hits":            "builtin:service.requestCount.total",
+		"trace.pg.request.errors":          "builtin:service.errors.total.count",
+		"trace.pg.request.duration":        "builtin:service.response.time",
+		// JVM
+		"jvm.heap_memory":                  "builtin:tech.jvm.memory.heap.used",
+		"jvm.heap_memory_max":              "builtin:tech.jvm.memory.heap.max",
+		"jvm.non_heap_memory":              "builtin:tech.jvm.memory.nonheap.used",
+		"jvm.gc.major_collection_count":    "builtin:tech.jvm.memory.gc.collectionCount",
+		"jvm.gc.minor_collection_count":    "builtin:tech.jvm.memory.gc.collectionCount",
+		"jvm.gc.major_collection_time":     "builtin:tech.jvm.memory.gc.collectionTime",
+		"jvm.gc.minor_collection_time":     "builtin:tech.jvm.memory.gc.collectionTime",
+		"jvm.thread_count":                 "builtin:tech.jvm.threads.count",
+		// Process
+		"process.cpu.pct":                  "builtin:process.cpu.usage",
+		"process.mem.rss":                  "builtin:process.memory.resident",
+		"process.open_fds":                 "builtin:process.openFileDescriptors",
+		// System extras
+		"system.cpu.guest":                 "builtin:host.cpu.other",
+		"system.uptime":                    "builtin:host.availability",
+		"system.processes.count":           "builtin:host.processes",
 	}
 
 	if dt, ok := metricMap[ddMetric]; ok {

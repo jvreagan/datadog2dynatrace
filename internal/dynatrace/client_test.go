@@ -342,6 +342,107 @@ func TestValidateSuccess(t *testing.T) {
 	}
 }
 
+func TestListDashboardNames(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/config/v1/dashboards" && r.Method == "GET" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"dashboards":[{"id":"d1","name":"Dashboard A"},{"id":"d2","name":"Dashboard B"}]}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	names, err := c.ListDashboardNames()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(names) != 2 {
+		t.Fatalf("expected 2 names, got %d", len(names))
+	}
+	if names[0] != "Dashboard A" || names[1] != "Dashboard B" {
+		t.Errorf("unexpected names: %v", names)
+	}
+}
+
+func TestPushAllSkipExisting(t *testing.T) {
+	var mu sync.Mutex
+	createdPaths := []string{}
+
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		// List endpoints return existing resources
+		if r.Method == "GET" {
+			switch r.URL.Path {
+			case "/api/config/v1/dashboards":
+				w.Write([]byte(`{"dashboards":[{"name":"Existing Dashboard"}]}`))
+			case "/api/v2/slo":
+				w.Write([]byte(`{"slo":[{"name":"Existing SLO"}]}`))
+			default:
+				w.Write([]byte(`{"values":[],"monitors":[],"notebooks":[]}`))
+			}
+			return
+		}
+		// Track POST/PUT calls
+		mu.Lock()
+		createdPaths = append(createdPaths, r.Method+" "+r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	result := &ConversionResult{
+		Dashboards: []Dashboard{
+			{DashboardMetadata: DashboardMetadata{Name: "Existing Dashboard"}},
+			{DashboardMetadata: DashboardMetadata{Name: "New Dashboard"}},
+		},
+		SLOs: []SLO{
+			{Name: "Existing SLO"},
+			{Name: "New SLO"},
+		},
+	}
+
+	errs := c.PushAllWithOptions(result, PushOptions{SkipExisting: true})
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+
+	// Only "New Dashboard" and "New SLO" should be created
+	mu.Lock()
+	defer mu.Unlock()
+	if len(createdPaths) != 2 {
+		t.Fatalf("expected 2 creates (skipping existing), got %d: %v", len(createdPaths), createdPaths)
+	}
+}
+
+func TestPushAllNoSkipExisting(t *testing.T) {
+	var mu sync.Mutex
+	createCount := 0
+
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" || r.Method == "PUT" {
+			mu.Lock()
+			createCount++
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusCreated)
+	})
+
+	result := &ConversionResult{
+		Dashboards: []Dashboard{
+			{DashboardMetadata: DashboardMetadata{Name: "Dashboard"}},
+		},
+	}
+
+	// Without SkipExisting, no GET calls should be made
+	errs := c.PushAllWithOptions(result, PushOptions{SkipExisting: false})
+	if len(errs) != 0 {
+		t.Fatalf("expected 0 errors, got %d", len(errs))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if createCount != 1 {
+		t.Errorf("expected 1 create, got %d", createCount)
+	}
+}
+
 func TestValidateFailure(t *testing.T) {
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

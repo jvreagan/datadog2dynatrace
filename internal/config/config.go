@@ -18,7 +18,8 @@ type Config struct {
 	InputDir  string          `mapstructure:"input_dir"`
 	Target    string          `mapstructure:"target"`
 	OutputDir string          `mapstructure:"output_dir"`
-	DryRun    bool            `mapstructure:"dry_run"`
+	DryRun       bool            `mapstructure:"dry_run"`
+	SkipExisting bool            `mapstructure:"skip_existing"`
 	FailFast  bool            `mapstructure:"fail_fast"`
 	All        bool            `mapstructure:"all"`
 	ReportFile string          `mapstructure:"report_file"`
@@ -65,6 +66,7 @@ func BindFlags(cmd *cobra.Command) {
 	flags.String("target", "terraform", "Output target: api or terraform")
 	flags.String("output-dir", "./dynatrace-terraform/", "Terraform output directory")
 	flags.Bool("dry-run", false, "Preview without pushing")
+	flags.Bool("skip-existing", true, "Skip resources that already exist in Dynatrace")
 	flags.Bool("fail-fast", false, "Stop on first error")
 	flags.Bool("all", false, "Convert all resources (skip selection)")
 	flags.String("report-file", "./migration-report.md", "Migration report path")
@@ -82,6 +84,7 @@ func BindFlags(cmd *cobra.Command) {
 	viper.BindPFlag("target", flags.Lookup("target"))
 	viper.BindPFlag("output_dir", flags.Lookup("output-dir"))
 	viper.BindPFlag("dry_run", flags.Lookup("dry-run"))
+	viper.BindPFlag("skip_existing", flags.Lookup("skip-existing"))
 	viper.BindPFlag("fail_fast", flags.Lookup("fail-fast"))
 	viper.BindPFlag("all", flags.Lookup("all"))
 	viper.BindPFlag("report_file", flags.Lookup("report-file"))
@@ -139,6 +142,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("target", "terraform")
 	viper.SetDefault("output_dir", "./dynatrace-terraform/")
 	viper.SetDefault("report_file", "./migration-report.md")
+	viper.SetDefault("skip_existing", true)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

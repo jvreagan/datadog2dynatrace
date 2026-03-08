@@ -518,6 +518,327 @@ func TestConvertDashboard(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "toplist with no queries returns error",
+			input: &datadog.Dashboard{
+				Title: "Toplist No Query",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:     "toplist",
+							Title:    "Empty Toplist",
+							Requests: []datadog.WidgetRequest{},
+						},
+					},
+				},
+			},
+			wantErr:    true,
+			errContain: "no widgets could be converted",
+		},
+		{
+			name: "table with no queries returns error",
+			input: &datadog.Dashboard{
+				Title: "Table No Query",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:     "table",
+							Title:    "Empty Table",
+							Requests: []datadog.WidgetRequest{},
+						},
+					},
+				},
+			},
+			wantErr:    true,
+			errContain: "no widgets could be converted",
+		},
+		{
+			name: "table with valid metric query",
+			input: &datadog.Dashboard{
+				Title: "Table Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "table",
+							Title: "CPU Table",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if dt.Tiles[0].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", dt.Tiles[0].TileType)
+				}
+				if len(dt.Tiles[0].Queries) == 0 {
+					t.Error("expected at least one query")
+				}
+			},
+		},
+		{
+			name: "toplist with LogQuery produces MARKDOWN tile",
+			input: &datadog.Dashboard{
+				Title: "Toplist Log Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "toplist",
+							Title: "Log Toplist",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN for log toplist, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "fetch logs") {
+					t.Errorf("expected DQL in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name: "multi-query widget produces multiple DashboardQuery entries",
+			input: &datadog.Dashboard{
+				Title: "Multi Query Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Multi Metric",
+							Requests: []datadog.WidgetRequest{
+								{
+									Queries: []datadog.QueryDef{
+										{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+										{Name: "b", DataSource: "metrics", Query: "avg:system.cpu.system{*}"},
+									},
+									Formulas: []datadog.Formula{
+										{Formula: "a + b", Alias: "Total CPU"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if len(dt.Tiles[0].Queries) < 2 {
+					t.Fatalf("expected at least 2 queries, got %d", len(dt.Tiles[0].Queries))
+				}
+				q1 := dt.Tiles[0].Queries[0].MetricSelector
+				q2 := dt.Tiles[0].Queries[1].MetricSelector
+				if !strings.Contains(q1, "builtin:host.cpu.user") {
+					t.Errorf("Q1 should contain cpu.user, got %q", q1)
+				}
+				if !strings.Contains(q2, "builtin:host.cpu.system") {
+					t.Errorf("Q2 should contain cpu.system, got %q", q2)
+				}
+				if dt.Tiles[0].Queries[0].ID != "Q1" || dt.Tiles[0].Queries[1].ID != "Q2" {
+					t.Errorf("expected Q1 and Q2 IDs, got %q and %q", dt.Tiles[0].Queries[0].ID, dt.Tiles[0].Queries[1].ID)
+				}
+			},
+		},
+		{
+			name: "mixed metric and log queries prefers metric",
+			input: &datadog.Dashboard{
+				Title: "Mixed Source Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Mixed",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*}"},
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				// Should produce DATA_EXPLORER (metric wins over DQL)
+				if dt.Tiles[0].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", dt.Tiles[0].TileType)
+				}
+				if len(dt.Tiles[0].Queries) == 0 {
+					t.Error("expected metric queries present")
+				}
+			},
+		},
+		{
+			name: "hostmap with metric query produces DATA_EXPLORER",
+			input: &datadog.Dashboard{
+				Title: "Hostmap Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "hostmap",
+							Title: "Host CPU",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if dt.Tiles[0].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", dt.Tiles[0].TileType)
+				}
+				if len(dt.Tiles[0].Queries) == 0 {
+					t.Error("expected queries on hostmap tile")
+				}
+			},
+		},
+		{
+			name: "hostmap without query produces HOSTS tile",
+			input: &datadog.Dashboard{
+				Title: "Hostmap Fallback",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "hostmap",
+							Title: "Bare Hostmap",
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if dt.Tiles[0].TileType != "HOSTS" {
+					t.Errorf("expected HOSTS, got %q", dt.Tiles[0].TileType)
+				}
+			},
+		},
+		{
+			name: "SLO widget produces MARKDOWN with guidance",
+			input: &datadog.Dashboard{
+				Title: "SLO Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "slo",
+							Title: "API SLO",
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "Dynatrace SLO") {
+					t.Errorf("expected SLO guidance in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name: "heatmap widget name contains approx",
+			input: &datadog.Dashboard{
+				Title: "Heatmap Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "heatmap",
+							Title: "Latency Heat",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from heatmap") {
+					t.Errorf("expected approx note in name, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "dashboard with template variables gets MARKDOWN tile",
+			input: &datadog.Dashboard{
+				Title: "Templated Dashboard",
+				TemplateVars: []datadog.TemplateVar{
+					{Name: "env", Prefix: "environment", Default: "prod"},
+					{Name: "host", Prefix: "host", Default: ""},
+				},
+				Widgets: []datadog.Widget{
+					{Definition: datadog.WidgetDefinition{Type: "note", Title: "x", Content: "hello"}},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) < 2 {
+					t.Fatalf("expected at least 2 tiles, got %d", len(dt.Tiles))
+				}
+				tv := dt.Tiles[0]
+				if tv.TileType != "MARKDOWN" {
+					t.Errorf("expected first tile MARKDOWN, got %q", tv.TileType)
+				}
+				if !strings.Contains(tv.Markdown, "env") {
+					t.Errorf("expected markdown to mention 'env', got %q", tv.Markdown)
+				}
+				if !strings.Contains(tv.Markdown, "host") {
+					t.Errorf("expected markdown to mention 'host', got %q", tv.Markdown)
+				}
+				if !strings.Contains(tv.Markdown, "management zone") {
+					t.Errorf("expected DT guidance in markdown, got %q", tv.Markdown)
+				}
+			},
+		},
+		{
+			name: "dashboard without template variables has no extra tile",
+			input: &datadog.Dashboard{
+				Title: "No Vars Dashboard",
+				Widgets: []datadog.Widget{
+					{Definition: datadog.WidgetDefinition{Type: "note", Title: "x", Content: "hello"}},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Errorf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

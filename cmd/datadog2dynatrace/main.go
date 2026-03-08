@@ -191,12 +191,19 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	switch cfg.Target {
 	case "terraform":
-		fmt.Printf("Generating Terraform configs in %s...\n", cfg.OutputDir)
-		gen := terraform.NewGenerator(cfg.OutputDir)
-		if err := gen.GenerateAll(result); err != nil {
-			return fmt.Errorf("terraform generation failed: %w", err)
+		if cfg.DryRun {
+			fmt.Println("\n--- DRY RUN (Terraform) ---")
+			printDryRunSummary(result)
+			printTerraformFileList(result, cfg.OutputDir)
+			fmt.Println("No files were written.")
+		} else {
+			fmt.Printf("Generating Terraform configs in %s...\n", cfg.OutputDir)
+			gen := terraform.NewGenerator(cfg.OutputDir)
+			if err := gen.GenerateAll(result); err != nil {
+				return fmt.Errorf("terraform generation failed: %w", err)
+			}
+			color.Green("Terraform configs written to %s", cfg.OutputDir)
 		}
-		color.Green("Terraform configs written to %s", cfg.OutputDir)
 
 	case "api":
 		if err := cfg.ValidateDynatrace(); err != nil {
@@ -210,7 +217,9 @@ func runConvert(cmd *cobra.Command, args []string) error {
 			fmt.Println("No changes were made.")
 		} else {
 			fmt.Println("Pushing resources to Dynatrace...")
-			pushErrors = dtClient.PushAll(result)
+			pushErrors = dtClient.PushAllWithOptions(result, dynatrace.PushOptions{
+				SkipExisting: cfg.SkipExisting,
+			})
 		}
 
 	default:
@@ -226,6 +235,8 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	rpt.AddConversionErrors(convErrors)
 	rpt.AddPushErrors(pushErrors)
 	rpt.AddConversionSummary(result)
+	rpt.AddDashboardDetails(result.Dashboards)
+	rpt.AddDQLQueryNotes(result.Dashboards)
 
 	if err := rpt.WriteToFile(cfg.ReportFile); err != nil {
 		color.Yellow("Warning: could not write migration report: %v", err)
@@ -427,13 +438,95 @@ func toSet(items []string) map[string]bool {
 }
 
 func printDryRunSummary(result *dynatrace.ConversionResult) {
-	fmt.Printf("  Dashboards:           %d\n", len(result.Dashboards))
-	fmt.Printf("  Metric Events:        %d\n", len(result.MetricEvents))
-	fmt.Printf("  SLOs:                 %d\n", len(result.SLOs))
-	fmt.Printf("  Synthetic Monitors:   %d\n", len(result.Synthetics))
-	fmt.Printf("  Log Processing Rules: %d\n", len(result.LogRules))
-	fmt.Printf("  Metric Descriptors:   %d\n", len(result.Metrics))
-	fmt.Printf("  Maintenance Windows:  %d\n", len(result.Maintenance))
-	fmt.Printf("  Notifications:        %d\n", len(result.Notifications))
-	fmt.Printf("  Notebooks:            %d\n", len(result.Notebooks))
+	fmt.Println("\nResources to be created:")
+
+	dashNames := make([]string, len(result.Dashboards))
+	for i, d := range result.Dashboards {
+		dashNames[i] = d.DashboardMetadata.Name
+	}
+	printResourceGroup("Dashboards", dashNames)
+
+	meNames := make([]string, len(result.MetricEvents))
+	for i, me := range result.MetricEvents {
+		meNames[i] = me.Summary
+	}
+	printResourceGroup("Metric Events", meNames)
+
+	sloNames := make([]string, len(result.SLOs))
+	for i, s := range result.SLOs {
+		sloNames[i] = s.Name
+	}
+	printResourceGroup("SLOs", sloNames)
+
+	synNames := make([]string, len(result.Synthetics))
+	for i, s := range result.Synthetics {
+		synNames[i] = s.Name
+	}
+	printResourceGroup("Synthetic Monitors", synNames)
+
+	lrNames := make([]string, len(result.LogRules))
+	for i, r := range result.LogRules {
+		lrNames[i] = r.Name
+	}
+	printResourceGroup("Log Processing Rules", lrNames)
+
+	mdNames := make([]string, len(result.Metrics))
+	for i, m := range result.Metrics {
+		mdNames[i] = m.MetricID
+	}
+	printResourceGroup("Metric Descriptors", mdNames)
+
+	mwNames := make([]string, len(result.Maintenance))
+	for i, mw := range result.Maintenance {
+		mwNames[i] = mw.Name
+	}
+	printResourceGroup("Maintenance Windows", mwNames)
+
+	nNames := make([]string, len(result.Notifications))
+	for i, n := range result.Notifications {
+		nNames[i] = n.Name
+	}
+	printResourceGroup("Notifications", nNames)
+
+	nbNames := make([]string, len(result.Notebooks))
+	for i, nb := range result.Notebooks {
+		nbNames[i] = nb.Name
+	}
+	printResourceGroup("Notebooks", nbNames)
+}
+
+func printResourceGroup(label string, names []string) {
+	fmt.Printf("  %-24s %d\n", label+":", len(names))
+	for _, name := range names {
+		fmt.Printf("    - %s\n", name)
+	}
+}
+
+func printTerraformFileList(result *dynatrace.ConversionResult, outputDir string) {
+	fmt.Println("\nTerraform files that would be generated:")
+	fmt.Printf("  %s/provider.tf\n", outputDir)
+	if len(result.Dashboards) > 0 {
+		fmt.Printf("  %s/dashboards.tf\n", outputDir)
+	}
+	if len(result.MetricEvents) > 0 {
+		fmt.Printf("  %s/metric_events.tf\n", outputDir)
+	}
+	if len(result.SLOs) > 0 {
+		fmt.Printf("  %s/slos.tf\n", outputDir)
+	}
+	if len(result.Synthetics) > 0 {
+		fmt.Printf("  %s/synthetics.tf\n", outputDir)
+	}
+	if len(result.LogRules) > 0 {
+		fmt.Printf("  %s/log_processing.tf\n", outputDir)
+	}
+	if len(result.Maintenance) > 0 {
+		fmt.Printf("  %s/maintenance.tf\n", outputDir)
+	}
+	if len(result.Notifications) > 0 {
+		fmt.Printf("  %s/notifications.tf\n", outputDir)
+	}
+	if len(result.Notebooks) > 0 {
+		fmt.Printf("  %s/notebooks.tf\n", outputDir)
+	}
 }

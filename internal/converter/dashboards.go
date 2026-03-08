@@ -2,6 +2,7 @@ package converter
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter/query"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
@@ -16,6 +17,30 @@ func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
 			Name:  dd.Title,
 			Owner: "datadog2dynatrace",
 		},
+	}
+
+	// Convert template variables to a guidance tile
+	if len(dd.TemplateVars) > 0 {
+		var md strings.Builder
+		md.WriteString("**Template Variables (from DataDog)**\n\n")
+		md.WriteString("This dashboard used the following template variables in DataDog:\n\n")
+		md.WriteString("| Name | Prefix | Default |\n")
+		md.WriteString("|---|---|---|\n")
+		for _, tv := range dd.TemplateVars {
+			def := tv.Default
+			if def == "" {
+				def = "*"
+			}
+			md.WriteString(fmt.Sprintf("| `%s` | `%s` | `%s` |\n", tv.Name, tv.Prefix, def))
+		}
+		md.WriteString("\nConfigure **Dynatrace management zone filters** or **dashboard variables** to replicate this behavior.")
+		dt.Tiles = append(dt.Tiles, dynatrace.Tile{
+			Configured: true,
+			TileType:   "MARKDOWN",
+			Name:       "Template Variables",
+			Markdown:   md.String(),
+			Bounds:     dynatrace.TileBounds{Top: 0, Left: 0, Width: 912, Height: 152},
+		})
 	}
 
 	for i, w := range dd.Widgets {
@@ -73,11 +98,11 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 	case "free_text":
 		return convertNoteWidget(w, tile)
 	case "heatmap":
-		return convertTimeseriesWidget(w, tile) // Approximate with timeseries
+		return convertApproxWidget(w, tile, "heatmap", convertTimeseriesWidget)
 	case "distribution":
-		return convertTimeseriesWidget(w, tile)
+		return convertApproxWidget(w, tile, "distribution", convertTimeseriesWidget)
 	case "change":
-		return convertQueryValueWidget(w, tile) // Approximate with query value
+		return convertApproxWidget(w, tile, "change", convertQueryValueWidget)
 	case "hostmap":
 		return convertHostmapWidget(w, tile)
 	case "table":
@@ -98,16 +123,19 @@ func convertTimeseriesWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrac
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	qIdx := 0
 	var lastDQL queryResult
-	for i, req := range w.Definition.Requests {
-		qr := extractQuery(&req)
-		if qr.MetricSelector != "" {
-			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
-				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: qr.MetricSelector,
-			})
-		} else if qr.DQL != "" {
-			lastDQL = qr
+	for _, req := range w.Definition.Requests {
+		for _, qr := range extractQueries(&req) {
+			if qr.MetricSelector != "" {
+				qIdx++
+				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
+					ID:             fmt.Sprintf("Q%d", qIdx),
+					MetricSelector: qr.MetricSelector,
+				})
+			} else if qr.DQL != "" {
+				lastDQL = qr
+			}
 		}
 	}
 
@@ -124,16 +152,19 @@ func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrac
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	qIdx := 0
 	var lastDQL queryResult
-	for i, req := range w.Definition.Requests {
-		qr := extractQuery(&req)
-		if qr.MetricSelector != "" {
-			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
-				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: qr.MetricSelector,
-			})
-		} else if qr.DQL != "" {
-			lastDQL = qr
+	for _, req := range w.Definition.Requests {
+		for _, qr := range extractQueries(&req) {
+			if qr.MetricSelector != "" {
+				qIdx++
+				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
+					ID:             fmt.Sprintf("Q%d", qIdx),
+					MetricSelector: qr.MetricSelector,
+				})
+			} else if qr.DQL != "" {
+				lastDQL = qr
+			}
 		}
 	}
 
@@ -150,16 +181,19 @@ func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.T
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	qIdx := 0
 	var lastDQL queryResult
-	for i, req := range w.Definition.Requests {
-		qr := extractQuery(&req)
-		if qr.MetricSelector != "" {
-			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
-				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: qr.MetricSelector + ":sort(value(avg,descending)):limit(10)",
-			})
-		} else if qr.DQL != "" {
-			lastDQL = qr
+	for _, req := range w.Definition.Requests {
+		for _, qr := range extractQueries(&req) {
+			if qr.MetricSelector != "" {
+				qIdx++
+				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
+					ID:             fmt.Sprintf("Q%d", qIdx),
+					MetricSelector: qr.MetricSelector + ":sort(value(avg,descending)):limit(10)",
+				})
+			} else if qr.DQL != "" {
+				lastDQL = qr
+			}
 		}
 	}
 
@@ -169,7 +203,7 @@ func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.T
 	if lastDQL.DQL != "" {
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
-	return tile, nil
+	return nil, fmt.Errorf("no queries could be converted")
 }
 
 func convertNoteWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
@@ -180,8 +214,30 @@ func convertNoteWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile
 }
 
 func convertHostmapWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
-	tile.TileType = "HOSTS"
+	// Try to extract metric queries from the hostmap widget
+	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
+
+	qIdx := 0
+	for _, req := range w.Definition.Requests {
+		for _, qr := range extractQueries(&req) {
+			if qr.MetricSelector != "" {
+				qIdx++
+				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
+					ID:             fmt.Sprintf("Q%d", qIdx),
+					MetricSelector: qr.MetricSelector,
+				})
+			}
+		}
+	}
+
+	if len(tile.Queries) > 0 {
+		return tile, nil
+	}
+
+	// Fallback to HOSTS tile
+	tile.TileType = "HOSTS"
+	tile.Queries = nil
 	return tile, nil
 }
 
@@ -189,16 +245,19 @@ func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Til
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	qIdx := 0
 	var lastDQL queryResult
-	for i, req := range w.Definition.Requests {
-		qr := extractQuery(&req)
-		if qr.MetricSelector != "" {
-			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
-				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: qr.MetricSelector,
-			})
-		} else if qr.DQL != "" {
-			lastDQL = qr
+	for _, req := range w.Definition.Requests {
+		for _, qr := range extractQueries(&req) {
+			if qr.MetricSelector != "" {
+				qIdx++
+				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
+					ID:             fmt.Sprintf("Q%d", qIdx),
+					MetricSelector: qr.MetricSelector,
+				})
+			} else if qr.DQL != "" {
+				lastDQL = qr
+			}
 		}
 	}
 
@@ -208,13 +267,26 @@ func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Til
 	if lastDQL.DQL != "" {
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
-	return tile, nil
+	return nil, fmt.Errorf("no queries could be converted")
 }
 
 func convertSLOWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
-	tile.TileType = "SLO"
+	tile.TileType = "MARKDOWN"
 	tile.Name = w.Definition.Title
+	tile.Markdown = fmt.Sprintf("**%s** (SLO Widget)\n\nThis DataDog SLO widget has been migrated.\nLink this tile to the corresponding **Dynatrace SLO** that was created during migration.\n\nTo add an SLO tile, edit this dashboard in Dynatrace and replace this markdown tile with an SLO tile.", w.Definition.Title)
 	return tile, nil
+}
+
+// convertApproxWidget wraps a converter and appends an approximation note to the tile name.
+type widgetConverter func(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error)
+
+func convertApproxWidget(w *datadog.Widget, tile *dynatrace.Tile, sourceType string, fn widgetConverter) (*dynatrace.Tile, error) {
+	result, err := fn(w, tile)
+	if err != nil {
+		return nil, err
+	}
+	result.Name = result.Name + fmt.Sprintf(" (approx. from %s)", sourceType)
+	return result, nil
 }
 
 // queryResult discriminates between MetricSelector (classic dashboard tiles)
@@ -225,31 +297,44 @@ type queryResult struct {
 	SourceType     string // "metric", "log", or "apm"
 }
 
-func extractQuery(req *datadog.WidgetRequest) queryResult {
+// extractQueries extracts all query results from a widget request,
+// processing every entry in req.Queries (not just the first one).
+func extractQueries(req *datadog.WidgetRequest) []queryResult {
+	var results []queryResult
+
 	// Try the simple query string first
 	if req.Query != "" {
 		parsed, err := query.Parse(req.Query)
 		if err == nil {
-			return queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"}
+			results = append(results, queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"})
 		}
 	}
 
-	// Try the newer queries/formulas format
-	if len(req.Queries) > 0 {
-		parsed, err := query.Parse(req.Queries[0].Query)
+	// Process ALL entries in queries/formulas format
+	for _, qd := range req.Queries {
+		parsed, err := query.Parse(qd.Query)
 		if err == nil {
-			return queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"}
+			results = append(results, queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"})
 		}
 	}
 
 	// Log/APM queries produce DQL, not MetricSelector
 	if req.LogQuery != nil && req.LogQuery.Search != nil {
-		return queryResult{DQL: query.ToDQL(req.LogQuery.Search.Query), SourceType: "log"}
+		results = append(results, queryResult{DQL: query.ToDQL(req.LogQuery.Search.Query), SourceType: "log"})
 	}
 	if req.ApmQuery != nil && req.ApmQuery.Search != nil {
-		return queryResult{DQL: query.ToDQL(req.ApmQuery.Search.Query), SourceType: "apm"}
+		results = append(results, queryResult{DQL: query.ToDQL(req.ApmQuery.Search.Query), SourceType: "apm"})
 	}
 
+	return results
+}
+
+// extractQuery returns the first query result from a widget request (convenience wrapper).
+func extractQuery(req *datadog.WidgetRequest) queryResult {
+	results := extractQueries(req)
+	if len(results) > 0 {
+		return results[0]
+	}
 	return queryResult{}
 }
 
