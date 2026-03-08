@@ -3,6 +3,8 @@ package query
 import (
 	"fmt"
 	"strings"
+
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 )
 
 // ToMetricSelector converts a parsed DataDog query to a Dynatrace metric selector.
@@ -12,6 +14,9 @@ func ToMetricSelector(pq *ParsedQuery) string {
 	}
 
 	metric := TranslateMetricName(pq.Metric)
+	if metric != pq.Metric {
+		logging.Debug("metric name translated: %s -> %s", pq.Metric, metric)
+	}
 
 	var sb strings.Builder
 	sb.WriteString(metric)
@@ -53,6 +58,9 @@ func ToMetricSelector(pq *ParsedQuery) string {
 	if pq.Aggregation != "" {
 		dtAgg := TranslateAggregation(pq.Aggregation)
 		if dtAgg != "" {
+			if dtAgg != pq.Aggregation {
+				logging.Debug("aggregation translated: %s -> %s", pq.Aggregation, dtAgg)
+			}
 			sb.WriteString(":" + dtAgg)
 		}
 	}
@@ -78,6 +86,8 @@ func ToMetricSelector(pq *ParsedQuery) string {
 		dtFunc := MapFunction(pq.Function)
 		if dtFunc != "" {
 			sb.WriteString(":" + dtFunc)
+		} else {
+			logging.Debug("function %q has no DT equivalent, skipping", pq.Function)
 		}
 	}
 

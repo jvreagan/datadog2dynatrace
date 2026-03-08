@@ -7,6 +7,7 @@ import (
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter/query"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/dynatrace"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 )
 
 // ConvertMonitor converts a DataDog monitor to a Dynatrace metric event.
@@ -80,8 +81,10 @@ func parseMonitorQuery(dd *datadog.Monitor) (metricSelector string, alertConditi
 	}
 
 	// Parse the remaining metric query
+	logging.Debug("parsing monitor query: %s", q)
 	parsed, err := query.Parse(q)
 	if err != nil {
+		logging.Warn("query parse failed, falling back to raw string: %s", q)
 		return q, alertCondition, threshold
 	}
 

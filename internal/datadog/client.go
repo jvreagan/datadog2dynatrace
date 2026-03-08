@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ratelimit"
 )
 
@@ -70,6 +71,7 @@ func (c *Client) setHeaders(req *http.Request) {
 
 // get performs a GET request and returns the response body.
 func (c *Client) get(path string) ([]byte, error) {
+	logging.Debug("DataDog API GET %s", path)
 	req, err := http.NewRequest("GET", c.baseURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -126,42 +128,49 @@ func (c *Client) ExtractAll() (*ExtractionResult, error) {
 		errs = append(errs, fmt.Errorf("dashboards: %w", err))
 	} else {
 		result.Dashboards = dashboards
+		logging.Info("fetched %d dashboards", len(dashboards))
 	}
 
 	if monitors, err := c.GetMonitors(); err != nil {
 		errs = append(errs, fmt.Errorf("monitors: %w", err))
 	} else {
 		result.Monitors = monitors
+		logging.Info("fetched %d monitors", len(monitors))
 	}
 
 	if slos, err := c.GetSLOs(); err != nil {
 		errs = append(errs, fmt.Errorf("SLOs: %w", err))
 	} else {
 		result.SLOs = slos
+		logging.Info("fetched %d SLOs", len(slos))
 	}
 
 	if synthetics, err := c.GetSynthetics(); err != nil {
 		errs = append(errs, fmt.Errorf("synthetics: %w", err))
 	} else {
 		result.Synthetics = synthetics
+		logging.Info("fetched %d synthetics", len(synthetics))
 	}
 
 	if pipelines, err := c.GetLogPipelines(); err != nil {
 		errs = append(errs, fmt.Errorf("log pipelines: %w", err))
 	} else {
 		result.LogPipelines = pipelines
+		logging.Info("fetched %d log pipelines", len(pipelines))
 	}
 
 	if downtimes, err := c.GetDowntimes(); err != nil {
 		errs = append(errs, fmt.Errorf("downtimes: %w", err))
 	} else {
 		result.Downtimes = downtimes
+		logging.Info("fetched %d downtimes", len(downtimes))
 	}
 
 	if notebooks, err := c.GetNotebooks(); err != nil {
 		errs = append(errs, fmt.Errorf("notebooks: %w", err))
 	} else {
 		result.Notebooks = notebooks
+		logging.Info("fetched %d notebooks", len(notebooks))
 	}
 
 	if len(errs) > 0 {

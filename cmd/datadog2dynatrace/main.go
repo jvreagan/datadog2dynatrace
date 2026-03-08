@@ -12,6 +12,8 @@ import (
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/dynatrace"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/importer"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ratelimit"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/report"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/terraform"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ui"
@@ -63,11 +65,22 @@ func convertCmd() *cobra.Command {
 	return cmd
 }
 
+func initLogging(cfg *config.Config) {
+	switch {
+	case cfg.Debug:
+		logging.SetLevel(logging.LevelDebug)
+	case cfg.Verbose:
+		logging.SetLevel(logging.LevelInfo)
+	}
+	ratelimit.SetLogWriter(logging.Writer())
+}
+
 func runValidate(cmd *cobra.Command, args []string) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	initLogging(cfg)
 
 	success := true
 
@@ -116,6 +129,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
+	initLogging(cfg)
 
 	// Step 1: Extract from DataDog
 	var extraction *datadog.ExtractionResult

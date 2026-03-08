@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ratelimit"
 )
 
@@ -66,6 +67,7 @@ func (c *Client) setHeaders(req *http.Request) {
 
 // post performs a POST request with a JSON body.
 func (c *Client) post(path string, body interface{}) ([]byte, error) {
+	logging.Debug("Dynatrace API POST %s", path)
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request body: %w", err)
@@ -97,6 +99,7 @@ func (c *Client) post(path string, body interface{}) ([]byte, error) {
 
 // put performs a PUT request with a JSON body.
 func (c *Client) put(path string, body interface{}) ([]byte, error) {
+	logging.Debug("Dynatrace API PUT %s", path)
 	jsonBody, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("marshaling request body: %w", err)
@@ -130,36 +133,42 @@ func (c *Client) put(path string, body interface{}) ([]byte, error) {
 func (c *Client) PushAll(result *ConversionResult) []error {
 	var errs []error
 
+	logging.Info("pushing %d dashboards to Dynatrace", len(result.Dashboards))
 	for _, d := range result.Dashboards {
 		if err := c.CreateDashboard(&d); err != nil {
 			errs = append(errs, fmt.Errorf("dashboard %q: %w", d.DashboardMetadata.Name, err))
 		}
 	}
 
+	logging.Info("pushing %d metric events to Dynatrace", len(result.MetricEvents))
 	for _, me := range result.MetricEvents {
 		if err := c.CreateMetricEvent(&me); err != nil {
 			errs = append(errs, fmt.Errorf("metric event %q: %w", me.Summary, err))
 		}
 	}
 
+	logging.Info("pushing %d SLOs to Dynatrace", len(result.SLOs))
 	for _, s := range result.SLOs {
 		if err := c.CreateSLO(&s); err != nil {
 			errs = append(errs, fmt.Errorf("SLO %q: %w", s.Name, err))
 		}
 	}
 
+	logging.Info("pushing %d synthetics to Dynatrace", len(result.Synthetics))
 	for _, sm := range result.Synthetics {
 		if err := c.CreateSyntheticMonitor(&sm); err != nil {
 			errs = append(errs, fmt.Errorf("synthetic %q: %w", sm.Name, err))
 		}
 	}
 
+	logging.Info("pushing %d maintenance windows to Dynatrace", len(result.Maintenance))
 	for _, mw := range result.Maintenance {
 		if err := c.CreateMaintenanceWindow(&mw); err != nil {
 			errs = append(errs, fmt.Errorf("maintenance window %q: %w", mw.Name, err))
 		}
 	}
 
+	logging.Info("pushing %d notifications to Dynatrace", len(result.Notifications))
 	for _, n := range result.Notifications {
 		if err := c.CreateNotification(&n); err != nil {
 			errs = append(errs, fmt.Errorf("notification %q: %w", n.Name, err))

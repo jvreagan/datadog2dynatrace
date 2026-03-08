@@ -7,7 +7,6 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -135,7 +134,7 @@ func (l *Limiter) backoff(attempt int) time.Duration {
 }
 
 // logWriter is the writer used for retry log messages.
-var logWriter io.Writer = os.Stderr
+var logWriter io.Writer = io.Discard
 
 // SetLogWriter sets the writer for log messages. Pass nil to disable logging.
 func SetLogWriter(w io.Writer) {

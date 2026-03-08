@@ -6,6 +6,7 @@ import (
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter/query"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/dynatrace"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 )
 
 // ConvertDashboard converts a DataDog dashboard to a Dynatrace dashboard.
@@ -39,6 +40,8 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 		Bounds:     calculateBounds(w.Layout, index),
 	}
 
+	logging.Debug("converting widget type %q (%q)", w.Definition.Type, w.Definition.Title)
+
 	switch w.Definition.Type {
 	case "timeseries":
 		return convertTimeseriesWidget(w, tile)
@@ -65,6 +68,7 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 	case "slo":
 		return convertSLOWidget(w, tile)
 	default:
+		logging.Debug("unsupported widget type %q, falling back to MARKDOWN", w.Definition.Type)
 		// For unsupported widgets, create a markdown tile with info
 		tile.TileType = "MARKDOWN"
 		tile.Name = w.Definition.Title

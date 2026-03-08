@@ -20,8 +20,10 @@ type Config struct {
 	OutputDir string          `mapstructure:"output_dir"`
 	DryRun    bool            `mapstructure:"dry_run"`
 	FailFast  bool            `mapstructure:"fail_fast"`
-	All       bool            `mapstructure:"all"`
-	ReportFile string         `mapstructure:"report_file"`
+	All        bool            `mapstructure:"all"`
+	ReportFile string          `mapstructure:"report_file"`
+	Verbose    bool            `mapstructure:"verbose"`
+	Debug      bool            `mapstructure:"debug"`
 }
 
 type DataDogConfig struct {
@@ -66,6 +68,8 @@ func BindFlags(cmd *cobra.Command) {
 	flags.Bool("fail-fast", false, "Stop on first error")
 	flags.Bool("all", false, "Convert all resources (skip selection)")
 	flags.String("report-file", "./migration-report.md", "Migration report path")
+	flags.Bool("verbose", false, "Enable verbose output (info-level logging)")
+	flags.Bool("debug", false, "Enable debug output (debug-level logging)")
 
 	flags.String("dd-api-key", "", "DataDog API key")
 	flags.String("dd-app-key", "", "DataDog Application key")
@@ -81,6 +85,8 @@ func BindFlags(cmd *cobra.Command) {
 	viper.BindPFlag("fail_fast", flags.Lookup("fail-fast"))
 	viper.BindPFlag("all", flags.Lookup("all"))
 	viper.BindPFlag("report_file", flags.Lookup("report-file"))
+	viper.BindPFlag("verbose", flags.Lookup("verbose"))
+	viper.BindPFlag("debug", flags.Lookup("debug"))
 
 	viper.BindPFlag("datadog.api_key", flags.Lookup("dd-api-key"))
 	viper.BindPFlag("datadog.app_key", flags.Lookup("dd-app-key"))
@@ -97,12 +103,16 @@ func BindValidateFlags(cmd *cobra.Command) {
 	flags.String("dd-site", "datadoghq.com", "DataDog site")
 	flags.String("dt-env-url", "", "Dynatrace environment URL")
 	flags.String("dt-api-token", "", "Dynatrace API token")
+	flags.Bool("verbose", false, "Enable verbose output (info-level logging)")
+	flags.Bool("debug", false, "Enable debug output (debug-level logging)")
 
 	viper.BindPFlag("datadog.api_key", flags.Lookup("dd-api-key"))
 	viper.BindPFlag("datadog.app_key", flags.Lookup("dd-app-key"))
 	viper.BindPFlag("datadog.site", flags.Lookup("dd-site"))
 	viper.BindPFlag("dynatrace.env_url", flags.Lookup("dt-env-url"))
 	viper.BindPFlag("dynatrace.api_token", flags.Lookup("dt-api-token"))
+	viper.BindPFlag("verbose", flags.Lookup("verbose"))
+	viper.BindPFlag("debug", flags.Lookup("debug"))
 }
 
 func Load() (*Config, error) {
