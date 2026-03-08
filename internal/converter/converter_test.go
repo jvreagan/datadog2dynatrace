@@ -404,6 +404,120 @@ func TestConvertDashboard(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "timeseries with LogQuery produces MARKDOWN tile with DQL",
+			input: &datadog.Dashboard{
+				Title: "Log Query Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Log Errors",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN tile for LogQuery, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "fetch logs") {
+					t.Errorf("expected DQL with 'fetch logs' in markdown, got %q", tile.Markdown)
+				}
+				if !strings.Contains(tile.Markdown, "Notebook") {
+					t.Errorf("expected Notebook guidance in markdown, got %q", tile.Markdown)
+				}
+				if !strings.Contains(tile.Markdown, "Log Query") {
+					t.Errorf("expected 'Log Query' label in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name: "timeseries with ApmQuery produces MARKDOWN tile with APM label",
+			input: &datadog.Dashboard{
+				Title: "APM Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "APM Latency",
+							Requests: []datadog.WidgetRequest{
+								{
+									ApmQuery: &datadog.ApmQuery{
+										Index:  "trace-search",
+										Search: &datadog.SearchQuery{Query: "service:web"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN tile for ApmQuery, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "APM") {
+					t.Errorf("expected APM label in markdown, got %q", tile.Markdown)
+				}
+				if !strings.Contains(tile.Markdown, "fetch logs") {
+					t.Errorf("expected DQL in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name: "query_value with LogQuery produces MARKDOWN tile",
+			input: &datadog.Dashboard{
+				Title: "Log Count Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "query_value",
+							Title: "Error Count",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN tile for LogQuery in query_value, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "fetch logs") {
+					t.Errorf("expected DQL in markdown, got %q", tile.Markdown)
+				}
+				if !strings.Contains(tile.Markdown, "Notebook") {
+					t.Errorf("expected Notebook guidance in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

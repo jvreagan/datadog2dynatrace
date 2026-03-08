@@ -98,58 +98,77 @@ func convertTimeseriesWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrac
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	var lastDQL queryResult
 	for i, req := range w.Definition.Requests {
-		metricSelector := extractMetricSelector(&req)
-		if metricSelector != "" {
+		qr := extractQuery(&req)
+		if qr.MetricSelector != "" {
 			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
 				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: metricSelector,
+				MetricSelector: qr.MetricSelector,
 			})
+		} else if qr.DQL != "" {
+			lastDQL = qr
 		}
 	}
 
-	if len(tile.Queries) == 0 {
-		return nil, fmt.Errorf("no queries could be converted")
+	if len(tile.Queries) > 0 {
+		return tile, nil
 	}
-
-	return tile, nil
+	if lastDQL.DQL != "" {
+		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+	}
+	return nil, fmt.Errorf("no queries could be converted")
 }
 
 func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	var lastDQL queryResult
 	for i, req := range w.Definition.Requests {
-		metricSelector := extractMetricSelector(&req)
-		if metricSelector != "" {
+		qr := extractQuery(&req)
+		if qr.MetricSelector != "" {
 			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
 				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: metricSelector,
+				MetricSelector: qr.MetricSelector,
 			})
+		} else if qr.DQL != "" {
+			lastDQL = qr
 		}
 	}
 
-	if len(tile.Queries) == 0 {
-		return nil, fmt.Errorf("no queries could be converted")
+	if len(tile.Queries) > 0 {
+		return tile, nil
 	}
-
-	return tile, nil
+	if lastDQL.DQL != "" {
+		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+	}
+	return nil, fmt.Errorf("no queries could be converted")
 }
 
 func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	var lastDQL queryResult
 	for i, req := range w.Definition.Requests {
-		metricSelector := extractMetricSelector(&req)
-		if metricSelector != "" {
+		qr := extractQuery(&req)
+		if qr.MetricSelector != "" {
 			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
 				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: metricSelector + ":sort(value(avg,descending)):limit(10)",
+				MetricSelector: qr.MetricSelector + ":sort(value(avg,descending)):limit(10)",
 			})
+		} else if qr.DQL != "" {
+			lastDQL = qr
 		}
 	}
 
+	if len(tile.Queries) > 0 {
+		return tile, nil
+	}
+	if lastDQL.DQL != "" {
+		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+	}
 	return tile, nil
 }
 
@@ -170,16 +189,25 @@ func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Til
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
+	var lastDQL queryResult
 	for i, req := range w.Definition.Requests {
-		metricSelector := extractMetricSelector(&req)
-		if metricSelector != "" {
+		qr := extractQuery(&req)
+		if qr.MetricSelector != "" {
 			tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
 				ID:             fmt.Sprintf("Q%d", i+1),
-				MetricSelector: metricSelector,
+				MetricSelector: qr.MetricSelector,
 			})
+		} else if qr.DQL != "" {
+			lastDQL = qr
 		}
 	}
 
+	if len(tile.Queries) > 0 {
+		return tile, nil
+	}
+	if lastDQL.DQL != "" {
+		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+	}
 	return tile, nil
 }
 
@@ -189,12 +217,20 @@ func convertSLOWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile,
 	return tile, nil
 }
 
-func extractMetricSelector(req *datadog.WidgetRequest) string {
+// queryResult discriminates between MetricSelector (classic dashboard tiles)
+// and DQL (which requires a Notebook or Grail-powered dashboard).
+type queryResult struct {
+	MetricSelector string
+	DQL            string
+	SourceType     string // "metric", "log", or "apm"
+}
+
+func extractQuery(req *datadog.WidgetRequest) queryResult {
 	// Try the simple query string first
 	if req.Query != "" {
 		parsed, err := query.Parse(req.Query)
 		if err == nil {
-			return query.ToMetricSelector(parsed)
+			return queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"}
 		}
 	}
 
@@ -202,19 +238,37 @@ func extractMetricSelector(req *datadog.WidgetRequest) string {
 	if len(req.Queries) > 0 {
 		parsed, err := query.Parse(req.Queries[0].Query)
 		if err == nil {
-			return query.ToMetricSelector(parsed)
+			return queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"}
 		}
 	}
 
-	// Fallback to log/APM query translation
+	// Log/APM queries produce DQL, not MetricSelector
 	if req.LogQuery != nil && req.LogQuery.Search != nil {
-		return query.ToDQL(req.LogQuery.Search.Query)
+		return queryResult{DQL: query.ToDQL(req.LogQuery.Search.Query), SourceType: "log"}
 	}
 	if req.ApmQuery != nil && req.ApmQuery.Search != nil {
-		return query.ToDQL(req.ApmQuery.Search.Query)
+		return queryResult{DQL: query.ToDQL(req.ApmQuery.Search.Query), SourceType: "apm"}
 	}
 
-	return ""
+	return queryResult{}
+}
+
+// buildDQLMarkdownTile creates a MARKDOWN tile with embedded DQL and guidance
+// to use a Dynatrace Notebook, since classic dashboards don't support DQL tiles.
+func buildDQLMarkdownTile(title, dqlQuery, sourceType string, bounds dynatrace.TileBounds) *dynatrace.Tile {
+	label := "Log"
+	if sourceType == "apm" {
+		label = "APM"
+	}
+	markdown := fmt.Sprintf("**%s** (%s Query)\n\nThis widget used a DataDog %s query that was translated to DQL.\nClassic Dynatrace dashboards do not support DQL tiles.\nUse a **Dynatrace Notebook** to run this query:\n\n```\n%s\n```", title, label, label, dqlQuery)
+
+	return &dynatrace.Tile{
+		Configured: true,
+		TileType:   "MARKDOWN",
+		Name:       title,
+		Markdown:   markdown,
+		Bounds:     bounds,
+	}
 }
 
 func calculateBounds(layout *datadog.WidgetLayout, index int) dynatrace.TileBounds {

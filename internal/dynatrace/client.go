@@ -22,6 +22,16 @@ type Client struct {
 
 // NewClient creates a new Dynatrace API client.
 func NewClient(envURL, apiToken string) *Client {
+	return newClientWithConfig(envURL, apiToken, ratelimit.Config{
+		RequestsPerSecond: 10,
+		MaxRetries:        5,
+		InitialBackoff:    1 * time.Second,
+		MaxBackoff:        60 * time.Second,
+	})
+}
+
+// newClientWithConfig creates a client with custom rate limiter config (for testing).
+func newClientWithConfig(envURL, apiToken string, cfg ratelimit.Config) *Client {
 	envURL = strings.TrimRight(envURL, "/")
 	httpClient := &http.Client{
 		Timeout: 30 * time.Second,
@@ -30,12 +40,7 @@ func NewClient(envURL, apiToken string) *Client {
 		envURL:     envURL,
 		apiToken:   apiToken,
 		httpClient: httpClient,
-		limiter: ratelimit.New(httpClient, ratelimit.Config{
-			RequestsPerSecond: 10,
-			MaxRetries:        5,
-			InitialBackoff:    1 * time.Second,
-			MaxBackoff:        60 * time.Second,
-		}),
+		limiter:    ratelimit.New(httpClient, cfg),
 	}
 }
 
