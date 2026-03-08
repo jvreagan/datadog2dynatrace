@@ -1,13 +1,14 @@
 package dynatrace
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ratelimit"
 )
 
 // Client handles communication with the Dynatrace API.
@@ -15,17 +16,25 @@ type Client struct {
 	envURL     string
 	apiToken   string
 	httpClient *http.Client
+	limiter    *ratelimit.Limiter
 }
 
 // NewClient creates a new Dynatrace API client.
 func NewClient(envURL, apiToken string) *Client {
 	envURL = strings.TrimRight(envURL, "/")
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	return &Client{
-		envURL:   envURL,
-		apiToken: apiToken,
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		envURL:     envURL,
+		apiToken:   apiToken,
+		httpClient: httpClient,
+		limiter: ratelimit.New(httpClient, ratelimit.Config{
+			RequestsPerSecond: 10,
+			MaxRetries:        5,
+			InitialBackoff:    1 * time.Second,
+			MaxBackoff:        60 * time.Second,
+		}),
 	}
 }
 
@@ -37,7 +46,7 @@ func (c *Client) Validate() error {
 	}
 	c.setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.limiter.Do(req, nil)
 	if err != nil {
 		return fmt.Errorf("connecting to Dynatrace API: %w", err)
 	}
@@ -62,13 +71,13 @@ func (c *Client) post(path string, body interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling request body: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", c.envURL+path, bytes.NewReader(jsonBody))
+	req, err := http.NewRequest("POST", c.envURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	c.setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.limiter.Do(req, jsonBody)
 	if err != nil {
 		return nil, fmt.Errorf("API request to %s: %w", path, err)
 	}
@@ -93,13 +102,13 @@ func (c *Client) put(path string, body interface{}) ([]byte, error) {
 		return nil, fmt.Errorf("marshaling request body: %w", err)
 	}
 
-	req, err := http.NewRequest("PUT", c.envURL+path, bytes.NewReader(jsonBody))
+	req, err := http.NewRequest("PUT", c.envURL+path, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
 	c.setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.limiter.Do(req, jsonBody)
 	if err != nil {
 		return nil, fmt.Errorf("API request to %s: %w", path, err)
 	}

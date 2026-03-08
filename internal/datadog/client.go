@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/ratelimit"
 )
 
 // Client handles communication with the DataDog API.
@@ -14,6 +16,7 @@ type Client struct {
 	appKey     string
 	baseURL    string
 	httpClient *http.Client
+	limiter    *ratelimit.Limiter
 }
 
 // NewClient creates a new DataDog API client.
@@ -21,13 +24,20 @@ func NewClient(apiKey, appKey, site string) *Client {
 	if site == "" {
 		site = "datadoghq.com"
 	}
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	return &Client{
-		apiKey:  apiKey,
-		appKey:  appKey,
-		baseURL: fmt.Sprintf("https://api.%s", site),
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		apiKey:     apiKey,
+		appKey:     appKey,
+		baseURL:    fmt.Sprintf("https://api.%s", site),
+		httpClient: httpClient,
+		limiter: ratelimit.New(httpClient, ratelimit.Config{
+			RequestsPerSecond: 5,
+			MaxRetries:        5,
+			InitialBackoff:    1 * time.Second,
+			MaxBackoff:        60 * time.Second,
+		}),
 	}
 }
 
@@ -39,7 +49,7 @@ func (c *Client) Validate() error {
 	}
 	c.setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.limiter.Do(req, nil)
 	if err != nil {
 		return fmt.Errorf("connecting to DataDog API: %w", err)
 	}
@@ -66,7 +76,7 @@ func (c *Client) get(path string) ([]byte, error) {
 	}
 	c.setHeaders(req)
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.limiter.Do(req, nil)
 	if err != nil {
 		return nil, fmt.Errorf("API request to %s: %w", path, err)
 	}
