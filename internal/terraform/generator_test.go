@@ -69,6 +69,155 @@ func TestGenerateSLOs(t *testing.T) {
 	}
 }
 
+func TestGenerateDashboards(t *testing.T) {
+	dashboards := []dynatrace.Dashboard{
+		{
+			DashboardMetadata: dynatrace.DashboardMetadata{Name: "Test Dashboard"},
+			Tiles: []dynatrace.Tile{
+				{Name: "CPU", TileType: "DATA_EXPLORER"},
+			},
+		},
+	}
+	result := GenerateDashboards(dashboards)
+	if !strings.Contains(result, "dynatrace_json_dashboard") {
+		t.Error("expected dynatrace_json_dashboard resource type")
+	}
+	if !strings.Contains(result, "Test Dashboard") {
+		t.Error("expected dashboard name in output")
+	}
+}
+
+func TestGenerateSynthetics(t *testing.T) {
+	monitors := []dynatrace.SyntheticMonitor{
+		{
+			Name:    "Health Check",
+			Type:    "HTTP",
+			Enabled: true,
+		},
+	}
+	result := GenerateSynthetics(monitors)
+	if !strings.Contains(result, "dynatrace_http_monitor") {
+		t.Error("expected dynatrace_http_monitor resource type")
+	}
+	if !strings.Contains(result, "Health Check") {
+		t.Error("expected monitor name in output")
+	}
+}
+
+func TestGenerateSyntheticsBrowser(t *testing.T) {
+	monitors := []dynatrace.SyntheticMonitor{
+		{
+			Name:    "Browser Test",
+			Type:    "BROWSER",
+			Enabled: true,
+		},
+	}
+	result := GenerateSynthetics(monitors)
+	if !strings.Contains(result, "dynatrace_browser_monitor") {
+		t.Error("expected dynatrace_browser_monitor resource type")
+	}
+}
+
+func TestGenerateLogProcessing(t *testing.T) {
+	rules := []dynatrace.LogProcessingRule{
+		{
+			Name:    "Parse Nginx",
+			Enabled: true,
+			Query:   "process_group_instance:nginx",
+		},
+	}
+	result := GenerateLogProcessing(rules)
+	if !strings.Contains(result, "dynatrace_log_processing") {
+		t.Error("expected dynatrace_log_processing resource type")
+	}
+	if !strings.Contains(result, "Parse Nginx") {
+		t.Error("expected rule name in output")
+	}
+	if !strings.Contains(result, "process_group_instance:nginx") {
+		t.Error("expected query in output")
+	}
+}
+
+func TestGenerateMaintenance(t *testing.T) {
+	windows := []dynatrace.MaintenanceWindow{
+		{
+			Name:        "Weekly Maintenance",
+			Type:        "PLANNED",
+			Suppression: "DETECT_PROBLEMS_DONT_ALERT",
+			Schedule: dynatrace.MaintenanceSchedule{
+				RecurrenceType: "WEEKLY",
+				Start:          "2024-01-01 00:00",
+				End:            "2024-01-01 02:00",
+				ZoneID:         "UTC",
+			},
+		},
+	}
+	result := GenerateMaintenance(windows)
+	if !strings.Contains(result, "dynatrace_maintenance") {
+		t.Error("expected dynatrace_maintenance resource type")
+	}
+	if !strings.Contains(result, "schedule") {
+		t.Error("expected schedule block in output")
+	}
+}
+
+func TestGenerateNotifications(t *testing.T) {
+	notifications := []dynatrace.NotificationIntegration{
+		{
+			Name:   "Slack Alert",
+			Type:   "SLACK",
+			Active: true,
+			Config: map[string]interface{}{"url": "https://hooks.slack.com/test", "channel": "#alerts"},
+		},
+		{
+			Name:   "Webhook",
+			Type:   "WEBHOOK",
+			Active: true,
+			Config: map[string]interface{}{"url": "https://example.com/hook"},
+		},
+	}
+	result := GenerateNotifications(notifications)
+	if !strings.Contains(result, "dynatrace_slack_notification") {
+		t.Error("expected dynatrace_slack_notification resource type")
+	}
+	if !strings.Contains(result, "dynatrace_webhook_notification") {
+		t.Error("expected dynatrace_webhook_notification resource type")
+	}
+}
+
+func TestGenerateNotebooks(t *testing.T) {
+	notebooks := []dynatrace.DynatraceNotebook{
+		{
+			Name: "Investigation Notebook",
+			Sections: []dynatrace.NotebookSection{
+				{Type: "markdown", Content: "# Overview"},
+			},
+		},
+	}
+	result := GenerateNotebooks(notebooks)
+	if !strings.Contains(result, "dynatrace_document") {
+		t.Error("expected dynatrace_document resource type")
+	}
+	if !strings.Contains(result, "Investigation Notebook") {
+		t.Error("expected notebook name in output")
+	}
+	if !strings.Contains(result, "notebook") {
+		t.Error("expected type = notebook in output")
+	}
+}
+
+func TestUniqueName(t *testing.T) {
+	if got := uniqueName("test", 0); got != "test" {
+		t.Errorf("uniqueName(test, 0) = %q, want %q", got, "test")
+	}
+	if got := uniqueName("test", 1); got != "test_1" {
+		t.Errorf("uniqueName(test, 1) = %q, want %q", got, "test_1")
+	}
+	if got := uniqueName("test", 5); got != "test_5" {
+		t.Errorf("uniqueName(test, 5) = %q, want %q", got, "test_5")
+	}
+}
+
 func TestSanitizeTFName(t *testing.T) {
 	tests := map[string]string{
 		"My Dashboard!":     "my_dashboard",

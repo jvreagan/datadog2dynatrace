@@ -28,12 +28,12 @@ func ImportFromDirectory(dir string) (*datadog.ExtractionResult, error) {
 		name := strings.ToLower(entry.Name())
 
 		switch {
-		case strings.HasSuffix(name, ".json"):
-			if err := importJSONFile(path, name, result); err != nil {
+		case strings.HasSuffix(name, ".tf.json") || strings.HasSuffix(name, ".tf"):
+			if err := importTerraformFile(path, result); err != nil {
 				return nil, fmt.Errorf("importing %s: %w", entry.Name(), err)
 			}
-		case strings.HasSuffix(name, ".tf") || strings.HasSuffix(name, ".tf.json"):
-			if err := importTerraformFile(path, result); err != nil {
+		case strings.HasSuffix(name, ".json"):
+			if err := importJSONFile(path, name, result); err != nil {
 				return nil, fmt.Errorf("importing %s: %w", entry.Name(), err)
 			}
 		}
@@ -221,6 +221,29 @@ func autoImport(data []byte, result *datadog.ExtractionResult) error {
 	}
 	if _, ok := raw["thresholds"]; ok {
 		return importSLOs(data, result)
+	}
+	if _, ok := raw["public_id"]; ok {
+		if _, ok2 := raw["type"]; ok2 {
+			return importSynthetics(data, result)
+		}
+	}
+	if _, ok := raw["processors"]; ok {
+		if _, ok2 := raw["is_enabled"]; ok2 {
+			return importLogPipelines(data, result)
+		}
+	}
+	if _, ok := raw["scope"]; ok {
+		if _, ok2 := raw["monitor_id"]; ok2 {
+			return importDowntimes(data, result)
+		}
+		if _, ok2 := raw["monitor_tags"]; ok2 {
+			return importDowntimes(data, result)
+		}
+	}
+	if _, ok := raw["cells"]; ok {
+		if _, ok2 := raw["author"]; ok2 {
+			return importNotebooks(data, result)
+		}
 	}
 
 	return nil // Unknown format, skip silently

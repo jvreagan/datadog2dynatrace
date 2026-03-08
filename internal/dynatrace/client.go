@@ -175,5 +175,26 @@ func (c *Client) PushAll(result *ConversionResult) []error {
 		}
 	}
 
+	logging.Info("pushing %d log processing rules to Dynatrace", len(result.LogRules))
+	for _, r := range result.LogRules {
+		if err := c.CreateLogProcessingRule(&r); err != nil {
+			errs = append(errs, fmt.Errorf("log processing rule %q: %w", r.Name, err))
+		}
+	}
+
+	logging.Info("pushing %d metric descriptors to Dynatrace", len(result.Metrics))
+	for _, md := range result.Metrics {
+		if err := c.CreateMetricDescriptor(&md); err != nil {
+			errs = append(errs, fmt.Errorf("metric descriptor %q: %w", md.MetricID, err))
+		}
+	}
+
+	logging.Info("pushing %d notebooks to Dynatrace", len(result.Notebooks))
+	for _, nb := range result.Notebooks {
+		if err := c.CreateNotebook(&nb); err != nil {
+			errs = append(errs, fmt.Errorf("notebook %q: %w", nb.Name, err))
+		}
+	}
+
 	return errs
 }

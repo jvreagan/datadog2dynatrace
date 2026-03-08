@@ -71,6 +71,12 @@ func (g *Generator) GenerateAll(result *dynatrace.ConversionResult) error {
 		}
 	}
 
+	if len(result.Notebooks) > 0 {
+		if err := g.writeFile("notebooks.tf", GenerateNotebooks(result.Notebooks)); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

@@ -69,7 +69,7 @@ func ToMetricSelector(pq *ParsedQuery) string {
 	if pq.Rollup != nil {
 		dtRollup := MapRollupFunction(pq.Rollup.Method)
 		if pq.Rollup.Period > 0 {
-			sb.WriteString(fmt.Sprintf(":fold(%s)", dtRollup))
+			sb.WriteString(fmt.Sprintf(":fold(%s,%d)", dtRollup, pq.Rollup.Period))
 		} else {
 			sb.WriteString(fmt.Sprintf(":fold(%s)", dtRollup))
 		}

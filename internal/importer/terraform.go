@@ -67,6 +67,11 @@ func importTFJSON(data []byte, result *datadog.ExtractionResult) error {
 				if err := json.Unmarshal(rawRes, &d); err == nil {
 					result.Downtimes = append(result.Downtimes, d)
 				}
+			case strings.Contains(resType, "datadog_notebook"):
+				var nb datadog.Notebook
+				if err := json.Unmarshal(rawRes, &nb); err == nil {
+					result.Notebooks = append(result.Notebooks, nb)
+				}
 			}
 		}
 	}
@@ -110,6 +115,25 @@ func importTFHCL(content string, result *datadog.ExtractionResult) error {
 				Query: query,
 				Type:  monType,
 			})
+		case strings.Contains(resType, "datadog_service_level_objective"):
+			name := extractHCLStringField(lines[i:], "name")
+			if name != "" {
+				result.SLOs = append(result.SLOs, datadog.SLO{Name: name})
+			}
+		case strings.Contains(resType, "datadog_synthetics_test"):
+			name := extractHCLStringField(lines[i:], "name")
+			sType := extractHCLStringField(lines[i:], "type")
+			if name != "" {
+				result.Synthetics = append(result.Synthetics, datadog.SyntheticTest{Name: name, Type: sType})
+			}
+		case strings.Contains(resType, "datadog_logs_custom_pipeline"):
+			name := extractHCLStringField(lines[i:], "name")
+			if name != "" {
+				result.LogPipelines = append(result.LogPipelines, datadog.LogPipeline{Name: name})
+			}
+		case strings.Contains(resType, "datadog_downtime"):
+			message := extractHCLStringField(lines[i:], "message")
+			result.Downtimes = append(result.Downtimes, datadog.Downtime{Message: message})
 		}
 	}
 

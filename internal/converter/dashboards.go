@@ -19,6 +19,25 @@ func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
 	}
 
 	for i, w := range dd.Widgets {
+		if w.Definition.Type == "group" {
+			// Emit header tile
+			header := &dynatrace.Tile{
+				Configured: true,
+				TileType:   "HEADER",
+				Name:       w.Definition.Title,
+				Bounds:     calculateBounds(w.Layout, i),
+			}
+			dt.Tiles = append(dt.Tiles, *header)
+			// Recurse into nested widgets
+			for j, child := range w.Definition.Widgets {
+				tile, err := convertWidget(&child, len(dd.Widgets)+j)
+				if err != nil {
+					continue
+				}
+				dt.Tiles = append(dt.Tiles, *tile)
+			}
+			continue
+		}
 		tile, err := convertWidget(&w, i)
 		if err != nil {
 			// Non-fatal: skip unsupported widgets
@@ -53,8 +72,6 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 		return convertNoteWidget(w, tile)
 	case "free_text":
 		return convertNoteWidget(w, tile)
-	case "group":
-		return convertGroupWidget(w, tile)
 	case "heatmap":
 		return convertTimeseriesWidget(w, tile) // Approximate with timeseries
 	case "distribution":
@@ -143,13 +160,6 @@ func convertNoteWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile
 	return tile, nil
 }
 
-func convertGroupWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
-	// Group widgets contain nested widgets - flatten them
-	tile.TileType = "HEADER"
-	tile.Name = w.Definition.Title
-	return tile, nil
-}
-
 func convertHostmapWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
 	tile.TileType = "HOSTS"
 	tile.Name = w.Definition.Title
@@ -194,6 +204,14 @@ func extractMetricSelector(req *datadog.WidgetRequest) string {
 		if err == nil {
 			return query.ToMetricSelector(parsed)
 		}
+	}
+
+	// Fallback to log/APM query translation
+	if req.LogQuery != nil && req.LogQuery.Search != nil {
+		return query.ToDQL(req.LogQuery.Search.Query)
+	}
+	if req.ApmQuery != nil && req.ApmQuery.Search != nil {
+		return query.ToDQL(req.ApmQuery.Search.Query)
 	}
 
 	return ""

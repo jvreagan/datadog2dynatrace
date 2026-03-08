@@ -58,9 +58,18 @@ func TestToMetricSelector(t *testing.T) {
 			pq: &ParsedQuery{
 				Metric:  "my.metric",
 				Filters: map[string]string{},
-				Rollup:  &RollupDef{Method: "sum", Period: 60},
+				Rollup:  &RollupDef{Method: "sum", Period: 0},
 			},
 			contains: []string{":fold(sum)"},
+		},
+		{
+			name: "rollup with period emits fold with period",
+			pq: &ParsedQuery{
+				Metric:  "my.metric",
+				Filters: map[string]string{},
+				Rollup:  &RollupDef{Method: "sum", Period: 60},
+			},
+			contains: []string{":fold(sum,60)"},
 		},
 		{
 			name: "as_rate generates rate",
@@ -333,7 +342,7 @@ func TestEndToEndQueryTranslation(t *testing.T) {
 			ddQuery: "avg:system.cpu.user{*}.rollup(max, 300).fill(zero)",
 			contains: []string{
 				"builtin:host.cpu.user",
-				":fold(max)",
+				":fold(max,300)",
 			},
 		},
 		{

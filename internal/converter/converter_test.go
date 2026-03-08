@@ -198,14 +198,17 @@ func TestConvertDashboard(t *testing.T) {
 				},
 			},
 			check: func(t *testing.T, dt *dynatrace.Dashboard) {
-				if len(dt.Tiles) != 1 {
-					t.Fatalf("expected 1 tile (HEADER), got %d", len(dt.Tiles))
+				if len(dt.Tiles) != 2 {
+					t.Fatalf("expected 2 tiles (HEADER + nested), got %d", len(dt.Tiles))
 				}
 				if dt.Tiles[0].TileType != "HEADER" {
 					t.Errorf("expected HEADER tile type, got %q", dt.Tiles[0].TileType)
 				}
 				if dt.Tiles[0].Name != "Server Metrics" {
 					t.Errorf("expected tile name %q, got %q", "Server Metrics", dt.Tiles[0].Name)
+				}
+				if dt.Tiles[1].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected nested tile type DATA_EXPLORER, got %q", dt.Tiles[1].TileType)
 				}
 			},
 		},
