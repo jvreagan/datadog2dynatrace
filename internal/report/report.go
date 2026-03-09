@@ -273,6 +273,39 @@ func (r *Report) AddDQLQueryNotes(dashboards []dynatrace.Dashboard) {
 	})
 }
 
+// AddValidationResults adds a metric selector validation section to the report.
+func (r *Report) AddValidationResults(val *dynatrace.ValidationResult) {
+	if val == nil {
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Validated **%d** selectors: %d valid, %d invalid, %d skipped\n\n",
+		val.Summary.Total, val.Summary.Valid, val.Summary.Invalid, val.Summary.Skipped))
+
+	sb.WriteString("| Selector | Source(s) | Status | Error |\n")
+	sb.WriteString("|---|---|---|---|\n")
+
+	for _, sv := range val.Selectors {
+		status := "Valid"
+		if sv.Skipped {
+			status = "Skipped (placeholder)"
+		} else if !sv.Valid {
+			status = "Invalid"
+		}
+		sources := strings.Join(sv.Sources, "; ")
+		errMsg := sv.Error
+		// Escape pipes in error messages for markdown table
+		errMsg = strings.ReplaceAll(errMsg, "|", "\\|")
+		sb.WriteString(fmt.Sprintf("| `%s` | %s | %s | %s |\n", sv.Selector, sources, status, errMsg))
+	}
+
+	r.sections = append(r.sections, section{
+		title:   "Metric Selector Validation",
+		content: sb.String(),
+	})
+}
+
 // joinResourceNames joins up to 5 names, appending "+N more" if truncated.
 func joinResourceNames(names []string) string {
 	if len(names) == 0 {

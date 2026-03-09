@@ -188,6 +188,18 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Step 3.5: Validate metric selectors (optional)
+	var valResult *dynatrace.ValidationResult
+	if cfg.Validate {
+		if err := cfg.ValidateDynatrace(); err != nil {
+			return fmt.Errorf("--validate requires Dynatrace credentials: %w", err)
+		}
+		dtValidateClient := dynatrace.NewClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.APIToken)
+		fmt.Println("Validating metric selectors against Dynatrace API...")
+		valResult = dtValidateClient.ValidateAll(result)
+		printValidationSummary(valResult)
+	}
+
 	// Step 4: Output
 	var pushErrors []error
 
@@ -259,6 +271,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 	rpt.AddConversionSummary(result)
 	rpt.AddDashboardDetails(result.Dashboards)
 	rpt.AddDQLQueryNotes(result.Dashboards)
+	rpt.AddValidationResults(valResult)
 
 	if err := rpt.WriteToFile(cfg.ReportFile); err != nil {
 		color.Yellow("Warning: could not write migration report: %v", err)
@@ -521,6 +534,20 @@ func printResourceGroup(label string, names []string) {
 	fmt.Printf("  %-24s %d\n", label+":", len(names))
 	for _, name := range names {
 		fmt.Printf("    - %s\n", name)
+	}
+}
+
+func printValidationSummary(val *dynatrace.ValidationResult) {
+	fmt.Printf("Validated %d selectors: %d valid, %d invalid, %d skipped\n",
+		val.Summary.Total, val.Summary.Valid, val.Summary.Invalid, val.Summary.Skipped)
+	for _, sv := range val.Selectors {
+		if !sv.Valid && !sv.Skipped {
+			color.Yellow("  INVALID: %s", sv.Selector)
+			for _, src := range sv.Sources {
+				fmt.Printf("    source: %s\n", src)
+			}
+			fmt.Printf("    error: %s\n", sv.Error)
+		}
 	}
 }
 

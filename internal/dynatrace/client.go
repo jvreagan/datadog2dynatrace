@@ -44,6 +44,17 @@ func newClientWithConfig(envURL, apiToken string, cfg ratelimit.Config) *Client 
 	}
 }
 
+// NewTestClient creates a client with relaxed rate limiting, suitable for tests
+// that use httptest servers.
+func NewTestClient(envURL, apiToken string) *Client {
+	return newClientWithConfig(envURL, apiToken, ratelimit.Config{
+		RequestsPerSecond: 1000,
+		MaxRetries:        0,
+		InitialBackoff:    1 * time.Millisecond,
+		MaxBackoff:        10 * time.Millisecond,
+	})
+}
+
 // Validate checks that the API credentials are valid.
 func (c *Client) Validate() error {
 	req, err := http.NewRequest("GET", c.envURL+"/api/v1/time", nil)

@@ -1,12 +1,15 @@
 package test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/dynatrace"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/importer"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/report"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/terraform"
@@ -649,6 +652,69 @@ func TestEndToEndNewWidgetTypes(t *testing.T) {
 		if !found {
 			t.Errorf("expected tile containing %q, not found in dashboard tiles", name)
 		}
+	}
+}
+
+// TestEndToEndValidation verifies the validation pipeline with a mock DT API.
+func TestEndToEndValidation(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{})
+	result, _ := conv.ConvertAll(ext)
+
+	// Stand up a mock Dynatrace API that accepts all builtin: selectors
+	// and rejects everything else.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		selector := r.URL.Query().Get("metricSelector")
+		if strings.HasPrefix(selector, "builtin:") {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"result":[]}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"error":{"message":"unknown metric"}}`))
+	}))
+	defer srv.Close()
+
+	dtClient := dynatrace.NewTestClient(srv.URL, "test-token")
+	valResult := dtClient.ValidateAll(result)
+
+	if valResult.Summary.Total == 0 {
+		t.Fatal("expected at least some selectors to validate")
+	}
+
+	// Verify summary counts add up
+	sum := valResult.Summary.Valid + valResult.Summary.Invalid + valResult.Summary.Skipped
+	if sum != valResult.Summary.Total {
+		t.Errorf("summary counts don't add up: valid(%d) + invalid(%d) + skipped(%d) != total(%d)",
+			valResult.Summary.Valid, valResult.Summary.Invalid, valResult.Summary.Skipped, valResult.Summary.Total)
+	}
+
+	// Verify the report integrates validation results
+	rpt := report.New()
+	rpt.SetSource("file", "testdata")
+	rpt.SetTarget("terraform", "output")
+	rpt.AddValidationResults(valResult)
+
+	reportPath := filepath.Join(t.TempDir(), "validation-report.md")
+	if err := rpt.WriteToFile(reportPath); err != nil {
+		t.Fatalf("WriteToFile failed: %v", err)
+	}
+
+	content, err := os.ReadFile(reportPath)
+	if err != nil {
+		t.Fatalf("reading report: %v", err)
+	}
+
+	r := string(content)
+	if !strings.Contains(r, "Metric Selector Validation") {
+		t.Error("report missing validation section")
+	}
+	if !strings.Contains(r, "Valid") {
+		t.Error("report missing Valid status")
 	}
 }
 
