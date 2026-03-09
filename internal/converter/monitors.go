@@ -2,6 +2,8 @@ package converter
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter/query"
@@ -12,6 +14,17 @@ import (
 
 // ConvertMonitor converts a DataDog monitor to a Dynatrace metric event.
 func ConvertMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
+	switch dd.Type {
+	case "log alert":
+		return convertLogAlertMonitor(dd)
+	case "composite":
+		return convertCompositeMonitor(dd)
+	default: // "metric alert", "query alert", "service check", "event alert"
+		return convertMetricMonitor(dd)
+	}
+}
+
+func convertMetricMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
 	me := &dynatrace.MetricEvent{
 		Summary:     dd.Name,
 		Description: sanitizeDescription(dd.Message),
@@ -52,6 +65,127 @@ func ConvertMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
 
 	if me.MetricSelector == "" {
 		return nil, fmt.Errorf("could not translate monitor query: %s", dd.Query)
+	}
+
+	return me, nil
+}
+
+var logQueryPattern = regexp.MustCompile(`logs\("(.+?)"\)`)
+
+func convertLogAlertMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
+	searchQuery, alertCondition, threshold := parseLogAlertQuery(dd.Query)
+	dqlQuery := query.ToDQL(searchQuery, "log")
+
+	// Use threshold from options if available
+	if dd.Options.Thresholds != nil && dd.Options.Thresholds.Critical != nil {
+		threshold = *dd.Options.Thresholds.Critical
+	}
+
+	desc := sanitizeDescription(dd.Message)
+	desc += fmt.Sprintf("\n\n--- Migration Note ---\nThis was a DataDog log alert. The original search query was converted to DQL:\n\n%s\n\nConfigure a Dynatrace Log event or custom metric from logs to replicate this alert.", dqlQuery)
+	if len(desc) > 1000 {
+		desc = desc[:997] + "..."
+	}
+
+	me := &dynatrace.MetricEvent{
+		Summary:        dd.Name,
+		Description:    desc,
+		Enabled:        true,
+		EventType:      "CUSTOM_ALERT",
+		MetricSelector: "builtin:host.availability",
+		AlertCondition: alertCondition,
+		Threshold:      threshold,
+		MonitoringStrategy: dynatrace.MonitoringStrategy{
+			Type:              "STATIC_THRESHOLD",
+			Samples:           5,
+			ViolatingSamples:  3,
+			DealertingSamples: 5,
+			AlertCondition:    alertCondition,
+			Threshold:         threshold,
+		},
+	}
+
+	for _, tag := range dd.Tags {
+		parts := strings.SplitN(tag, ":", 2)
+		t := dynatrace.METag{Key: parts[0]}
+		if len(parts) == 2 {
+			t.Value = parts[1]
+		}
+		me.Tags = append(me.Tags, t)
+	}
+
+	return me, nil
+}
+
+func parseLogAlertQuery(q string) (searchQuery string, alertCondition string, threshold float64) {
+	alertCondition = "ABOVE"
+
+	// Extract search query from logs("...") pattern
+	if m := logQueryPattern.FindStringSubmatch(q); len(m) > 1 {
+		searchQuery = m[1]
+	}
+
+	// Extract threshold and condition from comparison operator
+	for _, op := range []string{" >= ", " > ", " <= ", " < ", " == "} {
+		if idx := strings.LastIndex(q, op); idx > 0 {
+			alertCondition = query.MapAlertCondition(strings.TrimSpace(op))
+			threshStr := strings.TrimSpace(q[idx+len(op):])
+			if v, err := strconv.ParseFloat(threshStr, 64); err == nil {
+				threshold = v
+			}
+			break
+		}
+	}
+
+	return
+}
+
+var compositeIDPattern = regexp.MustCompile(`\b(\d+)\b`)
+
+func convertCompositeMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
+	// Extract referenced monitor IDs from composite expression
+	matches := compositeIDPattern.FindAllString(dd.Query, -1)
+	var ids []string
+	seen := make(map[string]bool)
+	for _, m := range matches {
+		if !seen[m] {
+			ids = append(ids, m)
+			seen[m] = true
+		}
+	}
+
+	desc := sanitizeDescription(dd.Message)
+	desc += fmt.Sprintf("\n\n--- Migration Note ---\nThis was a DataDog composite monitor referencing monitors: %s.\nOriginal expression: %s\nDynatrace does not support composite metric events. Create individual metric events and use Dynatrace alerting profiles to combine them.",
+		strings.Join(ids, ", "), dd.Query)
+	if len(desc) > 1000 {
+		desc = desc[:997] + "..."
+	}
+
+	me := &dynatrace.MetricEvent{
+		Summary:        dd.Name,
+		Description:    desc,
+		Enabled:        true,
+		EventType:      "CUSTOM_ALERT",
+		MetricSelector: "builtin:host.availability",
+		AlertCondition: "ABOVE",
+		Threshold:      0,
+		MonitoringStrategy: dynatrace.MonitoringStrategy{
+			Type:              "STATIC_THRESHOLD",
+			Samples:           5,
+			ViolatingSamples:  3,
+			DealertingSamples: 5,
+			AlertCondition:    "ABOVE",
+			Threshold:         0,
+		},
+	}
+
+	for _, tag := range dd.Tags {
+		parts := strings.SplitN(tag, ":", 2)
+		t := dynatrace.METag{Key: parts[0]}
+		if len(parts) == 2 {
+			t.Value = parts[1]
+		}
+		me.Tags = append(me.Tags, t)
 	}
 
 	return me, nil

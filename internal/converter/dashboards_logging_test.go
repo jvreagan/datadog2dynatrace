@@ -51,7 +51,7 @@ func TestLoggingDashboardUnsupportedWidget(t *testing.T) {
 			},
 			{
 				Definition: datadog.WidgetDefinition{
-					Type:  "sunburst",
+					Type:  "geomap",
 					Title: "Unsupported Widget",
 				},
 			},
@@ -61,7 +61,7 @@ func TestLoggingDashboardUnsupportedWidget(t *testing.T) {
 	ConvertDashboard(dd, false)
 
 	out := buf.String()
-	if !strings.Contains(out, `unsupported widget type "sunburst"`) {
+	if !strings.Contains(out, `unsupported widget type "geomap"`) {
 		t.Errorf("expected unsupported widget type log, got:\n%s", out)
 	}
 	if !strings.Contains(out, "falling back to MARKDOWN") {

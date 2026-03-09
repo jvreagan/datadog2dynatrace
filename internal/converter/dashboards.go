@@ -3,6 +3,7 @@ package converter
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/converter/query"
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
@@ -43,7 +44,20 @@ func ConvertDashboard(dd *datadog.Dashboard, enableGrail bool) (*dynatrace.Dashb
 		})
 	}
 
+	// Build template variable defaults map for substitution
+	varDefaults := make(map[string]string)
+	for _, tv := range dd.TemplateVars {
+		if tv.Default != "" && tv.Default != "*" {
+			varDefaults[tv.Name] = tv.Default
+		}
+	}
+
 	for i, w := range dd.Widgets {
+		// Substitute template variable references before conversion
+		if len(varDefaults) > 0 {
+			substituteWidgetVars(&w, varDefaults)
+		}
+
 		if w.Definition.Type == "group" {
 			// Emit header tile
 			header := &dynatrace.Tile{
@@ -107,6 +121,18 @@ func convertWidget(w *datadog.Widget, index int, enableGrail bool) (*dynatrace.T
 		return convertHostmapWidget(w, tile)
 	case "table":
 		return convertTableWidget(w, tile, enableGrail)
+	case "scatter":
+		return convertApproxWidget(w, tile, "scatter", enableGrail, convertTimeseriesWidget)
+	case "sunburst", "pie":
+		return convertApproxWidget(w, tile, w.Definition.Type, enableGrail, convertToplistWidget)
+	case "treemap":
+		return convertApproxWidget(w, tile, "treemap", enableGrail, convertToplistWidget)
+	case "funnel":
+		return convertApproxWidget(w, tile, "funnel", enableGrail, convertToplistWidget)
+	case "alert_graph":
+		return convertApproxWidget(w, tile, "alert_graph", enableGrail, convertTimeseriesWidget)
+	case "alert_value":
+		return convertAlertValueWidget(w, tile)
 	case "slo":
 		return convertSLOWidget(w, tile)
 	default:
@@ -213,6 +239,14 @@ func convertSLOWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile,
 	tile.TileType = "MARKDOWN"
 	tile.Name = w.Definition.Title
 	tile.Markdown = fmt.Sprintf("**%s** (SLO Widget)\n\nThis DataDog SLO widget has been migrated.\nLink this tile to the corresponding **Dynatrace SLO** that was created during migration.\n\nTo add an SLO tile, edit this dashboard in Dynatrace and replace this markdown tile with an SLO tile.", w.Definition.Title)
+	return tile, nil
+}
+
+func convertAlertValueWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
+	tile.TileType = "MARKDOWN"
+	tile.Name = w.Definition.Title
+	tile.Markdown = fmt.Sprintf("**%s** (Alert Value)\n\nThis was a DataDog alert value widget showing the current value of a monitor.\nReplace with a Dynatrace **Single Value** tile linked to the corresponding metric event.",
+		w.Definition.Title)
 	return tile, nil
 }
 
@@ -436,6 +470,75 @@ func buildDQLDataExplorerTile(title, dqlQuery, sourceType string, bounds dynatra
 				DQL: dqlQuery,
 			},
 		},
+	}
+}
+
+// substituteTemplateVars replaces $varName and $varName.value references in a query
+// string with the variable's default value, or "*" if no default is available.
+func substituteTemplateVars(q string, vars map[string]string) string {
+	if len(vars) == 0 || !strings.Contains(q, "$") {
+		return q
+	}
+
+	var result strings.Builder
+	i := 0
+	for i < len(q) {
+		if q[i] != '$' {
+			result.WriteByte(q[i])
+			i++
+			continue
+		}
+
+		// Look ahead to extract identifier
+		j := i + 1
+		for j < len(q) && (unicode.IsLetter(rune(q[j])) || unicode.IsDigit(rune(q[j])) || q[j] == '_') {
+			j++
+		}
+
+		if j == i+1 {
+			// No identifier after $, pass through
+			result.WriteByte(q[i])
+			i++
+			continue
+		}
+
+		varName := q[i+1 : j]
+
+		// Strip optional .value suffix
+		end := j
+		if end+6 <= len(q) && q[end:end+6] == ".value" {
+			end += 6
+		}
+
+		if val, ok := vars[varName]; ok {
+			result.WriteString(val)
+		} else {
+			result.WriteString("*")
+		}
+		i = end
+	}
+	return result.String()
+}
+
+// substituteWidgetVars replaces template variable references in all query strings
+// of a widget before conversion.
+func substituteWidgetVars(w *datadog.Widget, vars map[string]string) {
+	for i := range w.Definition.Requests {
+		req := &w.Definition.Requests[i]
+		req.Query = substituteTemplateVars(req.Query, vars)
+		for j := range req.Queries {
+			req.Queries[j].Query = substituteTemplateVars(req.Queries[j].Query, vars)
+		}
+		if req.LogQuery != nil && req.LogQuery.Search != nil {
+			req.LogQuery.Search.Query = substituteTemplateVars(req.LogQuery.Search.Query, vars)
+		}
+		if req.ApmQuery != nil && req.ApmQuery.Search != nil {
+			req.ApmQuery.Search.Query = substituteTemplateVars(req.ApmQuery.Search.Query, vars)
+		}
+	}
+	// Recurse into group widget children
+	for i := range w.Definition.Widgets {
+		substituteWidgetVars(&w.Definition.Widgets[i], vars)
 	}
 }
 

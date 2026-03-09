@@ -27,8 +27,8 @@ func TestEndToEndPipeline(t *testing.T) {
 	if len(ext.Dashboards) != 1 {
 		t.Errorf("expected 1 dashboard, got %d", len(ext.Dashboards))
 	}
-	if len(ext.Monitors) != 4 {
-		t.Errorf("expected 4 monitors, got %d", len(ext.Monitors))
+	if len(ext.Monitors) != 6 {
+		t.Errorf("expected 6 monitors, got %d", len(ext.Monitors))
 	}
 	if len(ext.SLOs) != 2 {
 		t.Errorf("expected 2 SLOs, got %d", len(ext.SLOs))
@@ -519,4 +519,162 @@ func TestEndToEndErrorCollection(t *testing.T) {
 	}
 
 	t.Logf("Converted %d resources total, with %d errors", totalConverted, len(errs))
+}
+
+// TestEndToEndLogAlertMonitor verifies log alert monitors produce metric events with DQL.
+func TestEndToEndLogAlertMonitor(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{})
+	result, _ := conv.ConvertAll(ext)
+
+	found := false
+	for _, me := range result.MetricEvents {
+		if strings.Contains(me.Summary, "Error Log Volume") {
+			found = true
+			if me.MetricSelector == "" {
+				t.Error("log alert metric event has empty metric selector")
+			}
+			if !strings.Contains(me.Description, "DQL") {
+				t.Errorf("expected DQL migration note in description, got %q", me.Description)
+			}
+			if !strings.Contains(me.Description, "fetch logs") {
+				t.Errorf("expected DQL query in description, got %q", me.Description)
+			}
+			if me.Threshold != 100.0 {
+				t.Errorf("expected threshold 100, got %f", me.Threshold)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("log alert monitor not found in converted metric events")
+	}
+}
+
+// TestEndToEndCompositeMonitor verifies composite monitors produce metric events with referenced IDs.
+func TestEndToEndCompositeMonitor(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{})
+	result, _ := conv.ConvertAll(ext)
+
+	found := false
+	for _, me := range result.MetricEvents {
+		if strings.Contains(me.Summary, "Composite") {
+			found = true
+			if me.MetricSelector == "" {
+				t.Error("composite metric event has empty metric selector")
+			}
+			if !strings.Contains(me.Description, "10001") || !strings.Contains(me.Description, "10002") {
+				t.Errorf("expected referenced monitor IDs in description, got %q", me.Description)
+			}
+			if !strings.Contains(me.Description, "composite") {
+				t.Errorf("expected composite migration note, got %q", me.Description)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Error("composite monitor not found in converted metric events")
+	}
+}
+
+// TestEndToEndTemplateVarSubstitution verifies dashboard template vars are substituted.
+func TestEndToEndTemplateVarSubstitution(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{})
+	result, _ := conv.ConvertAll(ext)
+
+	if len(result.Dashboards) == 0 {
+		t.Fatal("no dashboards converted")
+	}
+
+	dash := result.Dashboards[0]
+	for _, tile := range dash.Tiles {
+		for _, q := range tile.Queries {
+			if strings.Contains(q.MetricSelector, "$env") {
+				t.Errorf("tile %q still has $env in metric selector: %q", tile.Name, q.MetricSelector)
+			}
+			if strings.Contains(q.MetricSelector, "$host") {
+				t.Errorf("tile %q still has $host in metric selector: %q", tile.Name, q.MetricSelector)
+			}
+		}
+	}
+}
+
+// TestEndToEndNewWidgetTypes verifies sunburst, scatter, alert_value produce tiles.
+func TestEndToEndNewWidgetTypes(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{})
+	result, _ := conv.ConvertAll(ext)
+
+	if len(result.Dashboards) == 0 {
+		t.Fatal("no dashboards converted")
+	}
+
+	dash := result.Dashboards[0]
+	tileNames := make(map[string]bool)
+	for _, tile := range dash.Tiles {
+		tileNames[tile.Name] = true
+	}
+
+	expectedTiles := []string{
+		"Disk Usage by Host",
+		"CPU vs Memory Scatter",
+		"CPU Alert Current Value",
+	}
+	for _, name := range expectedTiles {
+		found := false
+		for tileName := range tileNames {
+			if strings.Contains(tileName, name) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected tile containing %q, not found in dashboard tiles", name)
+		}
+	}
+}
+
+// TestEndToEndGrailDashboard verifies Grail mode produces DQL DATA_EXPLORER tiles.
+func TestEndToEndGrailDashboard(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	conv := converter.New(converter.Options{EnableGrail: true})
+	result, _ := conv.ConvertAll(ext)
+
+	if len(result.Dashboards) == 0 {
+		t.Fatal("no dashboards converted")
+	}
+
+	dash := result.Dashboards[0]
+	hasDataExplorer := false
+	for _, tile := range dash.Tiles {
+		if tile.TileType == "DATA_EXPLORER" {
+			hasDataExplorer = true
+			break
+		}
+	}
+	if !hasDataExplorer {
+		t.Error("expected at least one DATA_EXPLORER tile in Grail mode")
+	}
 }

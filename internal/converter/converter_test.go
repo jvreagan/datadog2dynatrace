@@ -863,6 +863,196 @@ func TestConvertDashboard(t *testing.T) {
 			},
 		},
 		{
+			name: "scatter widget approximated as timeseries",
+			input: &datadog.Dashboard{
+				Title: "Scatter Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "scatter",
+							Title: "CPU vs Memory",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if dt.Tiles[0].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", dt.Tiles[0].TileType)
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from scatter") {
+					t.Errorf("expected approx note for scatter, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "sunburst widget approximated as toplist",
+			input: &datadog.Dashboard{
+				Title: "Sunburst Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "sunburst",
+							Title: "Disk by Host",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.disk.used{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if dt.Tiles[0].TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", dt.Tiles[0].TileType)
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from sunburst") {
+					t.Errorf("expected approx note for sunburst, got %q", dt.Tiles[0].Name)
+				}
+				if len(dt.Tiles[0].Queries) == 0 {
+					t.Error("expected queries on sunburst tile")
+				} else if !strings.Contains(dt.Tiles[0].Queries[0].MetricSelector, ":sort(") {
+					t.Errorf("expected toplist sort suffix, got %q", dt.Tiles[0].Queries[0].MetricSelector)
+				}
+			},
+		},
+		{
+			name: "pie widget approximated as toplist",
+			input: &datadog.Dashboard{
+				Title: "Pie Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "pie",
+							Title: "CPU Pie",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from pie") {
+					t.Errorf("expected approx note for pie, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "treemap widget approximated as toplist",
+			input: &datadog.Dashboard{
+				Title: "Treemap Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "treemap",
+							Title: "Memory Treemap",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.mem.used{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from treemap") {
+					t.Errorf("expected approx note for treemap, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "funnel widget approximated as toplist",
+			input: &datadog.Dashboard{
+				Title: "Funnel Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "funnel",
+							Title: "Request Funnel",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*} by {host}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from funnel") {
+					t.Errorf("expected approx note for funnel, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "alert_value widget produces markdown guidance",
+			input: &datadog.Dashboard{
+				Title: "Alert Value Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "alert_value",
+							Title: "CPU Alert Status",
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "Alert Value") {
+					t.Errorf("expected alert value note in markdown, got %q", tile.Markdown)
+				}
+				if !strings.Contains(tile.Markdown, "Single Value") {
+					t.Errorf("expected Single Value guidance, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name: "alert_graph widget approximated as timeseries",
+			input: &datadog.Dashboard{
+				Title: "Alert Graph Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "alert_graph",
+							Title: "Alert Graph",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*}"},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "approx. from alert_graph") {
+					t.Errorf("expected approx note for alert_graph, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
 			name: "dashboard without template variables has no extra tile",
 			input: &datadog.Dashboard{
 				Title: "No Vars Dashboard",
@@ -898,6 +1088,118 @@ func TestConvertDashboard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Template variable substitution tests
+// ---------------------------------------------------------------------------
+
+func TestSubstituteTemplateVars(t *testing.T) {
+	vars := map[string]string{
+		"env":  "prod",
+		"host": "web01",
+	}
+
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "simple variable",
+			input: "avg:system.cpu.user{env:$env}",
+			want:  "avg:system.cpu.user{env:prod}",
+		},
+		{
+			name:  "variable with .value suffix",
+			input: "avg:system.cpu.user{env:$env.value}",
+			want:  "avg:system.cpu.user{env:prod}",
+		},
+		{
+			name:  "multiple variables",
+			input: "avg:system.cpu.user{env:$env,host:$host}",
+			want:  "avg:system.cpu.user{env:prod,host:web01}",
+		},
+		{
+			name:  "unknown variable replaced with wildcard",
+			input: "avg:system.cpu.user{region:$region}",
+			want:  "avg:system.cpu.user{region:*}",
+		},
+		{
+			name:  "no variables unchanged",
+			input: "avg:system.cpu.user{env:prod}",
+			want:  "avg:system.cpu.user{env:prod}",
+		},
+		{
+			name:  "dollar at end of string",
+			input: "cost$",
+			want:  "cost$",
+		},
+		{
+			name:  "empty string",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "variable at end of string",
+			input: "avg:system.cpu.user{env:$env",
+			want:  "avg:system.cpu.user{env:prod",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := substituteTemplateVars(tt.input, vars)
+			if got != tt.want {
+				t.Errorf("substituteTemplateVars(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestTemplateVarSubstitutionInDashboard(t *testing.T) {
+	dash := &datadog.Dashboard{
+		Title: "Templated Dashboard",
+		TemplateVars: []datadog.TemplateVar{
+			{Name: "env", Prefix: "env", Default: "prod"},
+		},
+		Widgets: []datadog.Widget{
+			{
+				Definition: datadog.WidgetDefinition{
+					Type:  "timeseries",
+					Title: "CPU by Env",
+					Requests: []datadog.WidgetRequest{
+						{Query: "avg:system.cpu.user{env:$env} by {host}"},
+					},
+				},
+			},
+		},
+	}
+
+	dt, err := ConvertDashboard(dash, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// First tile is template var guidance markdown, second is the widget
+	if len(dt.Tiles) < 2 {
+		t.Fatalf("expected at least 2 tiles, got %d", len(dt.Tiles))
+	}
+
+	// The converted widget should not contain $env
+	for _, tile := range dt.Tiles {
+		if tile.TileType == "DATA_EXPLORER" && len(tile.Queries) > 0 {
+			sel := tile.Queries[0].MetricSelector
+			if strings.Contains(sel, "$env") {
+				t.Errorf("metric selector still contains $env: %q", sel)
+			}
+			if !strings.Contains(sel, "\"prod\"") && !strings.Contains(sel, "prod") {
+				t.Errorf("metric selector should contain substituted value 'prod', got %q", sel)
+			}
+			return
+		}
+	}
+	t.Error("no DATA_EXPLORER tile found")
 }
 
 // ---------------------------------------------------------------------------
@@ -1339,11 +1641,13 @@ func TestConvertMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "log alert maps to CUSTOM_ALERT",
+			name: "log alert with logs() query produces metric event with DQL in description",
 			input: &datadog.Monitor{
-				Name:  "Log Spike",
-				Type:  "log alert",
-				Query: "avg(last_5m):avg:system.cpu.user{*} > 5",
+				Name:    "High Error Log Volume",
+				Type:    "log alert",
+				Query:   `logs("service:payment-api status:error").index("main").rollup("count").last("5m") > 100`,
+				Message: "Error log volume spike.",
+				Tags:    []string{"service:payment-api"},
 				Options: datadog.MonitorOptions{
 					Thresholds: &datadog.Thresholds{
 						Critical: &logThreshold,
@@ -1355,7 +1659,59 @@ func TestConvertMonitor(t *testing.T) {
 					t.Errorf("expected CUSTOM_ALERT for log alert, got %q", me.EventType)
 				}
 				if me.Threshold != 5.0 {
-					t.Errorf("expected threshold 5, got %f", me.Threshold)
+					t.Errorf("expected threshold 5 (from options), got %f", me.Threshold)
+				}
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder metric selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "DQL") || !strings.Contains(me.Description, "log alert") {
+					t.Errorf("expected DQL migration note in description, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "fetch logs") {
+					t.Errorf("expected DQL query in description, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "composite monitor produces metric event with referenced IDs",
+			input: &datadog.Monitor{
+				Name:    "Production Health Composite",
+				Type:    "composite",
+				Query:   "10001 && 10002",
+				Message: "Multiple alerts triggered.",
+				Tags:    []string{"env:prod"},
+				Options: datadog.MonitorOptions{},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.EventType != "CUSTOM_ALERT" {
+					t.Errorf("expected CUSTOM_ALERT for composite, got %q", me.EventType)
+				}
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder metric selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "10001") || !strings.Contains(me.Description, "10002") {
+					t.Errorf("expected referenced monitor IDs in description, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "composite") {
+					t.Errorf("expected composite migration note, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "composite monitor with OR expression",
+			input: &datadog.Monitor{
+				Name:    "Complex Composite",
+				Type:    "composite",
+				Query:   "10001 && 10002 || 10003",
+				Message: "Complex composite alert.",
+				Options: datadog.MonitorOptions{},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if !strings.Contains(me.Description, "10001") {
+					t.Errorf("expected 10001 in description, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "10003") {
+					t.Errorf("expected 10003 in description, got %q", me.Description)
 				}
 			},
 		},
