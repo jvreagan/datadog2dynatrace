@@ -476,8 +476,8 @@ func TestConvertDashboard(t *testing.T) {
 				if !strings.Contains(tile.Markdown, "APM") {
 					t.Errorf("expected APM label in markdown, got %q", tile.Markdown)
 				}
-				if !strings.Contains(tile.Markdown, "fetch logs") {
-					t.Errorf("expected DQL in markdown, got %q", tile.Markdown)
+				if !strings.Contains(tile.Markdown, "fetch spans") {
+					t.Errorf("expected 'fetch spans' DQL in markdown, got %q", tile.Markdown)
 				}
 			},
 		},
@@ -2727,6 +2727,32 @@ func TestConvertDowntime(t *testing.T) {
 				}
 				if mw.Scope.Matches[0].TagCombination != "OR" {
 					t.Errorf("expected OR tag combination, got %q", mw.Scope.Matches[0].TagCombination)
+				}
+			},
+		},
+		{
+			name: "downtime with scope entries creates scope matches",
+			input: &datadog.Downtime{
+				ID:      9,
+				Message: "Scoped downtime",
+				Start:   1700000000,
+				End:     &endTime,
+				Scope:   []string{"host:web01", "env:prod"},
+			},
+			check: func(t *testing.T, mw *dynatrace.MaintenanceWindow) {
+				if mw.Scope == nil {
+					t.Fatal("expected scope to be set")
+				}
+				if len(mw.Scope.Matches) != 2 {
+					t.Fatalf("expected 2 scope matches from Scope entries, got %d", len(mw.Scope.Matches))
+				}
+				// Check first match
+				if len(mw.Scope.Matches[0].Tags) != 1 || mw.Scope.Matches[0].Tags[0].Key != "host" || mw.Scope.Matches[0].Tags[0].Value != "web01" {
+					t.Errorf("expected first scope match for host:web01, got %+v", mw.Scope.Matches[0])
+				}
+				// Check second match
+				if len(mw.Scope.Matches[1].Tags) != 1 || mw.Scope.Matches[1].Tags[0].Key != "env" || mw.Scope.Matches[1].Tags[0].Value != "prod" {
+					t.Errorf("expected second scope match for env:prod, got %+v", mw.Scope.Matches[1])
 				}
 			},
 		},

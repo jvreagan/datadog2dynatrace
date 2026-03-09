@@ -21,7 +21,6 @@ func TestToMetricSelector(t *testing.T) {
 			pq: &ParsedQuery{
 				Metric:      "system.cpu.user",
 				Aggregation: "avg",
-				Filters:     map[string]string{},
 			},
 			contains: []string{"builtin:host.cpu.user", ":avg"},
 		},
@@ -30,7 +29,7 @@ func TestToMetricSelector(t *testing.T) {
 			pq: &ParsedQuery{
 				Metric:      "system.cpu.user",
 				Aggregation: "avg",
-				Filters:     map[string]string{"host": "web01"},
+				Filters:     []FilterTerm{{Key: "host", Value: "web01", Operator: "AND"}},
 			},
 			contains: []string{":filter(", "eq(dt.entity.host,\"web01\")"},
 		},
@@ -39,7 +38,7 @@ func TestToMetricSelector(t *testing.T) {
 			pq: &ParsedQuery{
 				Metric:      "system.cpu.user",
 				Aggregation: "avg",
-				Filters:     map[string]string{"!env": "staging"},
+				Filters:     []FilterTerm{{Key: "env", Value: "staging", Negated: true, Operator: "AND"}},
 			},
 			contains: []string{"ne(environment,\"staging\")"},
 		},
@@ -48,7 +47,6 @@ func TestToMetricSelector(t *testing.T) {
 			pq: &ParsedQuery{
 				Metric:      "system.cpu.user",
 				Aggregation: "avg",
-				Filters:     map[string]string{},
 				GroupBy:     []string{"host"},
 			},
 			contains: []string{":splitBy(\"dt.entity.host\")", ":avg"},
@@ -57,7 +55,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "rollup generates fold",
 			pq: &ParsedQuery{
 				Metric:  "my.metric",
-				Filters: map[string]string{},
 				Rollup:  &RollupDef{Method: "sum", Period: 0},
 			},
 			contains: []string{":fold(sum)"},
@@ -66,7 +63,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "rollup with period emits fold with period",
 			pq: &ParsedQuery{
 				Metric:  "my.metric",
-				Filters: map[string]string{},
 				Rollup:  &RollupDef{Method: "sum", Period: 60},
 			},
 			contains: []string{":fold(sum,60)"},
@@ -75,7 +71,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "as_rate generates rate",
 			pq: &ParsedQuery{
 				Metric:     "my.metric",
-				Filters:    map[string]string{},
 				AsModifier: "rate",
 			},
 			contains: []string{":rate"},
@@ -84,7 +79,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "top function generates sort and limit",
 			pq: &ParsedQuery{
 				Metric:   "system.cpu.user",
-				Filters:  map[string]string{},
 				Function: "top",
 				FuncArgs: []string{"10", "mean", "desc"},
 			},
@@ -94,7 +88,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "bottom function generates ascending sort",
 			pq: &ParsedQuery{
 				Metric:   "system.cpu.user",
-				Filters:  map[string]string{},
 				Function: "bottom",
 				FuncArgs: []string{"5"},
 			},
@@ -104,7 +97,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "per_second function generates rate",
 			pq: &ParsedQuery{
 				Metric:   "my.counter",
-				Filters:  map[string]string{},
 				Function: "per_second",
 			},
 			contains: []string{":rate"},
@@ -113,7 +105,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "custom metric gets ext: prefix",
 			pq: &ParsedQuery{
 				Metric:  "custom.my_app.request_count",
-				Filters: map[string]string{},
 			},
 			contains: []string{"ext:custom.my_app.request_count"},
 		},
@@ -121,7 +112,6 @@ func TestToMetricSelector(t *testing.T) {
 			name: "unknown metric gets ext:custom. prefix",
 			pq: &ParsedQuery{
 				Metric:  "myapp.requests.count",
-				Filters: map[string]string{},
 			},
 			contains: []string{"ext:custom.myapp.requests.count"},
 		},
@@ -129,10 +119,10 @@ func TestToMetricSelector(t *testing.T) {
 			name: "filter keys translated correctly",
 			pq: &ParsedQuery{
 				Metric: "system.cpu.user",
-				Filters: map[string]string{
-					"pod_name":  "web-abc",
-					"namespace": "production",
-					"cluster":   "main",
+				Filters: []FilterTerm{
+					{Key: "pod_name", Value: "web-abc", Operator: "AND"},
+					{Key: "namespace", Value: "production", Operator: "AND"},
+					{Key: "cluster", Value: "main", Operator: "AND"},
 				},
 			},
 			contains: []string{"k8s.pod.name", "k8s.namespace.name", "k8s.cluster.name"},
@@ -141,9 +131,9 @@ func TestToMetricSelector(t *testing.T) {
 			name: "multiple filters use and()",
 			pq: &ParsedQuery{
 				Metric: "system.cpu.user",
-				Filters: map[string]string{
-					"host": "web01",
-					"env":  "prod",
+				Filters: []FilterTerm{
+					{Key: "host", Value: "web01", Operator: "AND"},
+					{Key: "env", Value: "prod", Operator: "AND"},
 				},
 			},
 			contains: []string{":filter(and("},
@@ -152,10 +142,33 @@ func TestToMetricSelector(t *testing.T) {
 			name: "single filter no and()",
 			pq: &ParsedQuery{
 				Metric:  "system.cpu.user",
-				Filters: map[string]string{"host": "web01"},
+				Filters: []FilterTerm{{Key: "host", Value: "web01", Operator: "AND"}},
 			},
 			contains:    []string{":filter(eq("},
 			notContains: []string{":filter(and("},
+		},
+		{
+			name: "OR filters produce or()",
+			pq: &ParsedQuery{
+				Metric: "system.cpu.user",
+				Filters: []FilterTerm{
+					{Key: "host", Value: "web01", Operator: "AND"},
+					{Key: "host", Value: "web02", Operator: "OR"},
+				},
+			},
+			contains: []string{":filter(or(", "eq(dt.entity.host,\"web01\")", "eq(dt.entity.host,\"web02\")"},
+		},
+		{
+			name: "mixed AND and OR filters",
+			pq: &ParsedQuery{
+				Metric: "system.cpu.user",
+				Filters: []FilterTerm{
+					{Key: "host", Value: "web01", Operator: "AND"},
+					{Key: "env", Value: "prod", Operator: "AND"},
+					{Key: "env", Value: "staging", Operator: "OR"},
+				},
+			},
+			contains: []string{":filter(and(", "or(eq(environment,\"prod\"),eq(environment,\"staging\"))"},
 		},
 	}
 
@@ -231,6 +244,7 @@ func TestToDQL(t *testing.T) {
 	tests := []struct {
 		name     string
 		query    string
+		srcType  string
 		contains []string
 	}{
 		{
@@ -288,11 +302,27 @@ func TestToDQL(t *testing.T) {
 			query:    "service:payment-api",
 			contains: []string{"dt.entity.service == \"payment-api\""},
 		},
+		{
+			name:     "APM source type produces fetch spans",
+			query:    "service:payment-api",
+			srcType:  "apm",
+			contains: []string{"fetch spans"},
+		},
+		{
+			name:     "log source type produces fetch logs",
+			query:    "service:payment-api",
+			srcType:  "log",
+			contains: []string{"fetch logs"},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := ToDQL(tt.query)
+			srcType := tt.srcType
+			if srcType == "" {
+				srcType = "log"
+			}
+			result := ToDQL(tt.query, srcType)
 
 			if tt.query == "" {
 				if result != "" {
@@ -301,6 +331,66 @@ func TestToDQL(t *testing.T) {
 				return
 			}
 
+			for _, s := range tt.contains {
+				if !strings.Contains(result, s) {
+					t.Errorf("expected result to contain %q, got:\n%s", s, result)
+				}
+			}
+		})
+	}
+}
+
+func TestToDQLFull(t *testing.T) {
+	tests := []struct {
+		name     string
+		search   string
+		srcType  string
+		compute  *DQLCompute
+		groupBy  []DQLGroupBy
+		contains []string
+	}{
+		{
+			name:    "compute count",
+			search:  "status:error",
+			srcType: "log",
+			compute: &DQLCompute{Aggregation: "count"},
+			contains: []string{"fetch logs", "summarize count()"},
+		},
+		{
+			name:    "compute avg with facet",
+			search:  "service:web",
+			srcType: "log",
+			compute: &DQLCompute{Aggregation: "avg", Facet: "@duration"},
+			contains: []string{"summarize avg(duration)"},
+		},
+		{
+			name:    "compute with group by",
+			search:  "status:error",
+			srcType: "log",
+			compute: &DQLCompute{Aggregation: "count"},
+			groupBy: []DQLGroupBy{{Facet: "service"}},
+			contains: []string{"summarize count()", "by {service}"},
+		},
+		{
+			name:    "compute with multiple group by",
+			search:  "*",
+			srcType: "log",
+			compute: &DQLCompute{Aggregation: "sum", Facet: "@bytes"},
+			groupBy: []DQLGroupBy{{Facet: "host"}, {Facet: "service"}},
+			contains: []string{"summarize sum(bytes)", "by {host, service}"},
+		},
+		{
+			name:    "APM compute",
+			search:  "service:api",
+			srcType: "apm",
+			compute: &DQLCompute{Aggregation: "avg", Facet: "@duration"},
+			contains: []string{"fetch spans", "summarize avg(duration)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ToDQLFull(tt.search, tt.srcType, tt.compute, tt.groupBy)
 			for _, s := range tt.contains {
 				if !strings.Contains(result, s) {
 					t.Errorf("expected result to contain %q, got:\n%s", s, result)
@@ -372,6 +462,15 @@ func TestEndToEndQueryTranslation(t *testing.T) {
 			contains: []string{
 				"eq(environment,\"prod\")",
 				"ne(dt.entity.host,\"debug01\")",
+			},
+		},
+		{
+			name:    "OR filter end-to-end",
+			ddQuery: "avg:system.cpu.user{host:web01 OR host:web02}",
+			contains: []string{
+				"or(",
+				"eq(dt.entity.host,\"web01\")",
+				"eq(dt.entity.host,\"web02\")",
 			},
 		},
 	}

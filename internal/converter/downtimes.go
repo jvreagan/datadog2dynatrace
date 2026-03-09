@@ -71,6 +71,21 @@ func ConvertDowntime(dd *datadog.Downtime) (*dynatrace.MaintenanceWindow, error)
 				TagCombination: "OR",
 			})
 		}
+		for _, s := range dd.Scope {
+			if s == "*" {
+				continue
+			}
+			parts := strings.SplitN(s, ":", 2)
+			t := dynatrace.METag{Key: parts[0]}
+			if len(parts) == 2 {
+				t.Value = parts[1]
+			}
+			scope.Matches = append(scope.Matches, dynatrace.MaintenanceScopeMatch{
+				Type:           "TAG",
+				Tags:           []dynatrace.METag{t},
+				TagCombination: "OR",
+			})
+		}
 		mw.Scope = scope
 	}
 

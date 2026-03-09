@@ -179,6 +179,13 @@ func (c *Client) ExtractAll() (*ExtractionResult, error) {
 		logging.Info("fetched %d notebooks", len(notebooks))
 	}
 
+	if channels, err := c.GetNotificationChannels(); err != nil {
+		errs = append(errs, fmt.Errorf("notifications: %w", err))
+	} else {
+		result.Notifications = channels
+		logging.Info("fetched %d notification channels", len(channels))
+	}
+
 	if len(errs) > 0 {
 		return result, fmt.Errorf("extraction errors: %v", errs)
 	}

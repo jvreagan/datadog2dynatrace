@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -222,8 +224,28 @@ func runConvert(cmd *cobra.Command, args []string) error {
 			})
 		}
 
+	case "json":
+		if cfg.DryRun {
+			fmt.Println("\n--- DRY RUN (JSON) ---")
+			printDryRunSummary(result)
+			fmt.Println("No files were written.")
+		} else {
+			if err := os.MkdirAll(cfg.OutputDir, 0755); err != nil {
+				return fmt.Errorf("creating output directory: %w", err)
+			}
+			data, err := json.MarshalIndent(result, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshalling JSON: %w", err)
+			}
+			outPath := filepath.Join(cfg.OutputDir, "dynatrace-resources.json")
+			if err := os.WriteFile(outPath, data, 0644); err != nil {
+				return fmt.Errorf("writing JSON output: %w", err)
+			}
+			color.Green("JSON output written to %s", outPath)
+		}
+
 	default:
-		return fmt.Errorf("invalid target: %s (must be 'api' or 'terraform')", cfg.Target)
+		return fmt.Errorf("invalid target: %s (must be 'api', 'terraform', or 'json')", cfg.Target)
 	}
 
 	// Step 5: Generate report

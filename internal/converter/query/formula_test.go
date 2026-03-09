@@ -61,6 +61,36 @@ func TestEvaluateFormula(t *testing.T) {
 			vars: map[string]string{"a": "sel_a", "b": "sel_b", "c": "sel_c", "d": "sel_d"},
 			want: "((sel_a) + (sel_b)) / ((sel_c) - (sel_d)) * 100",
 		},
+		{
+			name: "multi-character variable names",
+			expr: "query0 + query1",
+			vars: map[string]string{"query0": "sel0", "query1": "sel1"},
+			want: "(sel0) + (sel1)",
+		},
+		{
+			name: "mixed single and multi-char variables",
+			expr: "a + query0",
+			vars: map[string]string{"a": "sel_a", "query0": "sel0"},
+			want: "(sel_a) + (sel0)",
+		},
+		{
+			name: "underscore in variable name",
+			expr: "cpu_total / cpu_idle",
+			vars: map[string]string{"cpu_total": "total_sel", "cpu_idle": "idle_sel"},
+			want: "(total_sel) / (idle_sel)",
+		},
+		{
+			name: "multi-char with constant",
+			expr: "query0 * 100",
+			vars: map[string]string{"query0": "sel0"},
+			want: "(sel0) * 100",
+		},
+		{
+			name:    "unknown multi-char variable",
+			expr:    "query0 + query2",
+			vars:    map[string]string{"query0": "sel0"},
+			wantErr: "unknown variable",
+		},
 	}
 
 	for _, tt := range tests {

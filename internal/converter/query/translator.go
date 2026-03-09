@@ -23,24 +23,35 @@ func ToMetricSelector(pq *ParsedQuery) string {
 
 	// Add filters
 	if len(pq.Filters) > 0 {
-		var posFilters, negFilters []string
-		for k, v := range pq.Filters {
-			if strings.HasPrefix(k, "!") {
-				dtKey := translateFilterKey(k[1:])
-				negFilters = append(negFilters, fmt.Sprintf("ne(%s,\"%s\")", dtKey, v))
+		// Build filter groups: consecutive OR terms form a group with the preceding AND term.
+		var topLevel []string // AND-combined top-level expressions
+		i := 0
+		for i < len(pq.Filters) {
+			ft := pq.Filters[i]
+			expr := filterTermExpr(ft)
+
+			// Check if the next term(s) are OR — if so, build an or() group
+			if i+1 < len(pq.Filters) && pq.Filters[i+1].Operator == "OR" {
+				orGroup := []string{expr}
+				i++
+				for i < len(pq.Filters) && pq.Filters[i].Operator == "OR" {
+					orGroup = append(orGroup, filterTermExpr(pq.Filters[i]))
+					i++
+				}
+				topLevel = append(topLevel, fmt.Sprintf("or(%s)", strings.Join(orGroup, ",")))
 			} else {
-				dtKey := translateFilterKey(k)
-				posFilters = append(posFilters, fmt.Sprintf("eq(%s,\"%s\")", dtKey, v))
+				topLevel = append(topLevel, expr)
+				i++
 			}
 		}
-		var allFilters []string
-		allFilters = append(allFilters, posFilters...)
-		allFilters = append(allFilters, negFilters...)
-		if len(allFilters) == 1 {
-			sb.WriteString(fmt.Sprintf(":filter(%s)", allFilters[0]))
-		} else if len(allFilters) > 1 {
-			sb.WriteString(fmt.Sprintf(":filter(and(%s))", strings.Join(allFilters, ",")))
+
+		var filterExpr string
+		if len(topLevel) == 1 {
+			filterExpr = topLevel[0]
+		} else {
+			filterExpr = fmt.Sprintf("and(%s)", strings.Join(topLevel, ","))
 		}
+		sb.WriteString(fmt.Sprintf(":filter(%s)", filterExpr))
 	}
 
 	// Add split by (group by) — must come before aggregation in DT selectors
@@ -111,13 +122,35 @@ func ToMetricSelector(pq *ParsedQuery) string {
 	return sb.String()
 }
 
-// ToDQL converts a DataDog log query to Dynatrace Query Language (DQL).
-func ToDQL(ddQuery string) string {
+// DQLCompute represents a compute aggregation for DQL queries.
+type DQLCompute struct {
+	Aggregation string
+	Facet       string
+}
+
+// DQLGroupBy represents a group-by clause for DQL queries.
+type DQLGroupBy struct {
+	Facet string
+	Limit int
+}
+
+// ToDQL converts a DataDog log/APM query to Dynatrace Query Language (DQL).
+// sourceType should be "log" or "apm".
+func ToDQL(ddQuery string, sourceType string) string {
+	return ToDQLFull(ddQuery, sourceType, nil, nil)
+}
+
+// ToDQLFull converts a DataDog log/APM query to DQL with optional compute and group-by.
+func ToDQLFull(ddQuery string, sourceType string, compute *DQLCompute, groupBy []DQLGroupBy) string {
 	if ddQuery == "" {
 		return ""
 	}
 
-	dql := "fetch logs"
+	fetchTarget := "logs"
+	if sourceType == "apm" {
+		fetchTarget = "spans"
+	}
+	dql := "fetch " + fetchTarget
 
 	// Translate log query tokens
 	var filters []string
@@ -146,6 +179,28 @@ func ToDQL(ddQuery string) string {
 
 	if len(filters) > 0 {
 		dql += "\n| filter " + strings.Join(filters, " ")
+	}
+
+	// Append compute (summarize) clause
+	if compute != nil {
+		agg := mapDQLAggregation(compute.Aggregation)
+		facet := compute.Facet
+		if strings.HasPrefix(facet, "@") {
+			facet = facet[1:]
+		}
+		if facet != "" {
+			dql += fmt.Sprintf("\n| summarize %s(%s)", agg, facet)
+		} else {
+			dql += fmt.Sprintf("\n| summarize %s()", agg)
+		}
+
+		if len(groupBy) > 0 {
+			var facets []string
+			for _, gb := range groupBy {
+				facets = append(facets, gb.Facet)
+			}
+			dql += fmt.Sprintf(", by {%s}", strings.Join(facets, ", "))
+		}
 	}
 
 	return dql
@@ -376,6 +431,34 @@ func TranslateMetricName(ddMetric string) string {
 // TranslateAggregation converts a DD aggregation to DT equivalent.
 func TranslateAggregation(ddAgg string) string {
 	return MapAggregation(ddAgg)
+}
+
+// mapDQLAggregation maps DD aggregation names to DQL equivalents.
+func mapDQLAggregation(agg string) string {
+	switch strings.ToLower(agg) {
+	case "count":
+		return "count"
+	case "avg":
+		return "avg"
+	case "sum":
+		return "sum"
+	case "min":
+		return "min"
+	case "max":
+		return "max"
+	case "cardinality":
+		return "countDistinct"
+	default:
+		return agg
+	}
+}
+
+func filterTermExpr(ft FilterTerm) string {
+	dtKey := translateFilterKey(ft.Key)
+	if ft.Negated {
+		return fmt.Sprintf("ne(%s,\"%s\")", dtKey, ft.Value)
+	}
+	return fmt.Sprintf("eq(%s,\"%s\")", dtKey, ft.Value)
 }
 
 func translateFilterKey(ddKey string) string {

@@ -64,7 +64,7 @@ func BindFlags(cmd *cobra.Command) {
 
 	flags.String("source", "api", "Input source: api or file")
 	flags.String("input-dir", "", "Directory with DD export files (when source=file)")
-	flags.String("target", "terraform", "Output target: api or terraform")
+	flags.String("target", "terraform", "Output target: api, terraform, or json")
 	flags.String("output-dir", "./dynatrace-terraform/", "Terraform output directory")
 	flags.Bool("dry-run", false, "Preview without pushing")
 	flags.Bool("skip-existing", true, "Skip resources that already exist in Dynatrace")

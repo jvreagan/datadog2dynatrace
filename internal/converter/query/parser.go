@@ -9,7 +9,7 @@ import (
 type ParsedQuery struct {
 	Aggregation string
 	Metric      string
-	Filters     map[string]string
+	Filters     []FilterTerm
 	GroupBy     []string
 	Function    string
 	FuncArgs    []string // extra arguments to the wrapping function
@@ -17,6 +17,14 @@ type ParsedQuery struct {
 	AsModifier  string // "count", "rate"
 	Fill        string // "zero", "null", "last", "linear", or a number
 	RawQuery    string
+}
+
+// FilterTerm represents a single filter condition in a DD query.
+type FilterTerm struct {
+	Key      string
+	Value    string
+	Negated  bool
+	Operator string // "AND" (default) or "OR"
 }
 
 // RollupDef represents a .rollup() modifier on a DD query.
@@ -44,7 +52,6 @@ func Parse(query string) (*ParsedQuery, error) {
 
 	pq := &ParsedQuery{
 		RawQuery: query,
-		Filters:  make(map[string]string),
 	}
 
 	// Step 1: Strip outer wrapping function like top(...), per_second(...), abs(...)
@@ -277,35 +284,71 @@ func parseMetricBody(query string, pq *ParsedQuery) error {
 	return nil
 }
 
-// parseFilters parses "host:web01,env:prod" or "host:web01 AND env:prod" or negation "!env:staging".
+// parseFilters parses "host:web01,env:prod" or "host:web01 AND env:prod" or
+// "host:web01 OR host:web02" or negation "!env:staging".
 func parseFilters(filterStr string, pq *ParsedQuery) {
-	// DD supports comma-separated and AND/OR in filters
-	// Normalize: replace " AND " with ","
+	// Normalize explicit AND to comma
 	filterStr = strings.ReplaceAll(filterStr, " AND ", ",")
 	filterStr = strings.ReplaceAll(filterStr, " and ", ",")
 
-	for _, f := range strings.Split(filterStr, ",") {
-		f = strings.TrimSpace(f)
-		if f == "" || f == "*" {
+	// Split on commas (AND-separated groups)
+	for _, andGroup := range strings.Split(filterStr, ",") {
+		andGroup = strings.TrimSpace(andGroup)
+		if andGroup == "" || andGroup == "*" {
 			continue
 		}
 
-		// Handle negation (!key:value) — store with "!" prefix on key for downstream handling
-		negated := false
-		if strings.HasPrefix(f, "!") {
-			negated = true
-			f = f[1:]
-		}
-
-		if kv := strings.SplitN(f, ":", 2); len(kv) == 2 {
-			key := strings.TrimSpace(kv[0])
-			val := strings.TrimSpace(kv[1])
-			if negated {
-				key = "!" + key
+		// Within each AND group, split on " OR " or " or "
+		orParts := splitOnOr(andGroup)
+		for j, f := range orParts {
+			f = strings.TrimSpace(f)
+			if f == "" || f == "*" {
+				continue
 			}
-			pq.Filters[key] = val
+
+			negated := false
+			if strings.HasPrefix(f, "!") {
+				negated = true
+				f = f[1:]
+			}
+
+			op := "AND"
+			if j > 0 {
+				op = "OR"
+			}
+
+			if kv := strings.SplitN(f, ":", 2); len(kv) == 2 {
+				pq.Filters = append(pq.Filters, FilterTerm{
+					Key:      strings.TrimSpace(kv[0]),
+					Value:    strings.TrimSpace(kv[1]),
+					Negated:  negated,
+					Operator: op,
+				})
+			}
 		}
 	}
+}
+
+// splitOnOr splits a filter string on " OR " (case-insensitive), preserving order.
+func splitOnOr(s string) []string {
+	var parts []string
+	remaining := s
+	for {
+		idx := indexCaseInsensitive(remaining, " OR ")
+		if idx < 0 {
+			parts = append(parts, remaining)
+			break
+		}
+		parts = append(parts, remaining[:idx])
+		remaining = remaining[idx+4:]
+	}
+	return parts
+}
+
+// indexCaseInsensitive finds " OR " or " or " in s.
+func indexCaseInsensitive(s, substr string) int {
+	upper := strings.ToUpper(s)
+	return strings.Index(upper, strings.ToUpper(substr))
 }
 
 // findMatchingBrace finds the index of the closing brace matching the opening brace at openIdx.

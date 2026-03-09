@@ -4,6 +4,20 @@ import (
 	"testing"
 )
 
+// filterMap converts []FilterTerm to a map for backward-compatible assertions.
+// Negated keys are prefixed with "!".
+func filterMap(filters []FilterTerm) map[string]string {
+	m := make(map[string]string)
+	for _, ft := range filters {
+		key := ft.Key
+		if ft.Negated {
+			key = "!" + key
+		}
+		m[key] = ft.Value
+	}
+	return m
+}
+
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -255,9 +269,10 @@ func TestParse(t *testing.T) {
 
 			// Check filters
 			if tt.wantFilters != nil {
+				fm := filterMap(pq.Filters)
 				for k, v := range tt.wantFilters {
-					if pq.Filters[k] != v {
-						t.Errorf("filter %q: got %q, want %q", k, pq.Filters[k], v)
+					if fm[k] != v {
+						t.Errorf("filter %q: got %q, want %q", k, fm[k], v)
 					}
 				}
 				if len(pq.Filters) != len(tt.wantFilters) {
@@ -289,6 +304,50 @@ func TestParse(t *testing.T) {
 					if pq.Rollup.Period != tt.wantRollup.Period {
 						t.Errorf("rollup period: got %d, want %d", pq.Rollup.Period, tt.wantRollup.Period)
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestParseORFilters(t *testing.T) {
+	tests := []struct {
+		name        string
+		query       string
+		wantFilters []FilterTerm
+	}{
+		{
+			name:  "simple OR filter",
+			query: "avg:system.cpu.user{host:web01 OR host:web02}",
+			wantFilters: []FilterTerm{
+				{Key: "host", Value: "web01", Operator: "AND"},
+				{Key: "host", Value: "web02", Operator: "OR"},
+			},
+		},
+		{
+			name:  "mixed AND and OR",
+			query: "avg:system.cpu.user{host:web01,env:prod OR env:staging}",
+			wantFilters: []FilterTerm{
+				{Key: "host", Value: "web01", Operator: "AND"},
+				{Key: "env", Value: "prod", Operator: "AND"},
+				{Key: "env", Value: "staging", Operator: "OR"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pq, err := Parse(tt.query)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if len(pq.Filters) != len(tt.wantFilters) {
+				t.Fatalf("filter count: got %d, want %d", len(pq.Filters), len(tt.wantFilters))
+			}
+			for i, want := range tt.wantFilters {
+				got := pq.Filters[i]
+				if got.Key != want.Key || got.Value != want.Value || got.Negated != want.Negated || got.Operator != want.Operator {
+					t.Errorf("filter[%d]: got %+v, want %+v", i, got, want)
 				}
 			}
 		})

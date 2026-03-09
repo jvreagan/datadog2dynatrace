@@ -26,7 +26,7 @@ func TestLoggingMetricNameTranslation(t *testing.T) {
 	pq := &ParsedQuery{
 		Metric:      "system.cpu.user",
 		Aggregation: "avg",
-		Filters:     map[string]string{},
+		Filters:     nil,
 	}
 
 	ToMetricSelector(pq)
@@ -43,7 +43,7 @@ func TestLoggingAggregationTranslation(t *testing.T) {
 	pq := &ParsedQuery{
 		Metric:      "system.cpu.user",
 		Aggregation: "last",
-		Filters:     map[string]string{},
+		Filters:     nil,
 	}
 
 	ToMetricSelector(pq)
@@ -60,7 +60,7 @@ func TestLoggingUnsupportedFunction(t *testing.T) {
 
 	pq := &ParsedQuery{
 		Metric:   "system.cpu.user",
-		Filters:  map[string]string{},
+		Filters:  nil,
 		Function: "forecast",
 	}
 
