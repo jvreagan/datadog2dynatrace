@@ -1,6 +1,6 @@
 bin/
 dist/
-datadog2dynatrace
+/datadog2dynatrace
 *.exe
 *.exe~
 *.dll
