@@ -8,12 +8,19 @@ import (
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 )
 
-// Converter orchestrates the conversion of DataDog resources to Dynatrace equivalents.
-type Converter struct{}
+// Options configures the converter behavior.
+type Options struct {
+	EnableGrail bool
+}
 
-// New creates a new Converter.
-func New() *Converter {
-	return &Converter{}
+// Converter orchestrates the conversion of DataDog resources to Dynatrace equivalents.
+type Converter struct {
+	opts Options
+}
+
+// New creates a new Converter with the given options.
+func New(opts Options) *Converter {
+	return &Converter{opts: opts}
 }
 
 // ConvertAll converts all extracted DataDog resources to Dynatrace resources.
@@ -25,7 +32,7 @@ func (c *Converter) ConvertAll(ext *datadog.ExtractionResult) (*dynatrace.Conver
 	logging.Info("converting %d dashboards", len(ext.Dashboards))
 	for _, d := range ext.Dashboards {
 		logging.Debug("converting dashboard %q", d.Title)
-		dt, err := ConvertDashboard(&d)
+		dt, err := ConvertDashboard(&d, c.opts.EnableGrail)
 		if err != nil {
 			logging.Warn("dashboard %q: %v", d.Title, err)
 			errs = append(errs, fmt.Errorf("dashboard %q: %w", d.Title, err))

@@ -615,7 +615,7 @@ func TestConvertDashboard(t *testing.T) {
 			},
 		},
 		{
-			name: "multi-query widget produces multiple DashboardQuery entries",
+			name: "multi-query widget with formula produces composite MetricSelector",
 			input: &datadog.Dashboard{
 				Title: "Multi Query Dashboard",
 				Widgets: []datadog.Widget{
@@ -642,6 +642,46 @@ func TestConvertDashboard(t *testing.T) {
 				if len(dt.Tiles) != 1 {
 					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
 				}
+				if len(dt.Tiles[0].Queries) != 1 {
+					t.Fatalf("expected 1 composite query, got %d", len(dt.Tiles[0].Queries))
+				}
+				q := dt.Tiles[0].Queries[0].MetricSelector
+				if !strings.Contains(q, "builtin:host.cpu.user") {
+					t.Errorf("composite selector should contain cpu.user, got %q", q)
+				}
+				if !strings.Contains(q, "builtin:host.cpu.system") {
+					t.Errorf("composite selector should contain cpu.system, got %q", q)
+				}
+				if !strings.Contains(dt.Tiles[0].Name, "formula") {
+					t.Errorf("tile name should contain formula info, got %q", dt.Tiles[0].Name)
+				}
+			},
+		},
+		{
+			name: "multi-query widget without formula produces individual queries",
+			input: &datadog.Dashboard{
+				Title: "Multi Query No Formula",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Individual Metrics",
+							Requests: []datadog.WidgetRequest{
+								{
+									Queries: []datadog.QueryDef{
+										{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+										{Name: "b", DataSource: "metrics", Query: "avg:system.cpu.system{*}"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
 				if len(dt.Tiles[0].Queries) < 2 {
 					t.Fatalf("expected at least 2 queries, got %d", len(dt.Tiles[0].Queries))
 				}
@@ -652,9 +692,6 @@ func TestConvertDashboard(t *testing.T) {
 				}
 				if !strings.Contains(q2, "builtin:host.cpu.system") {
 					t.Errorf("Q2 should contain cpu.system, got %q", q2)
-				}
-				if dt.Tiles[0].Queries[0].ID != "Q1" || dt.Tiles[0].Queries[1].ID != "Q2" {
-					t.Errorf("expected Q1 and Q2 IDs, got %q and %q", dt.Tiles[0].Queries[0].ID, dt.Tiles[0].Queries[1].ID)
 				}
 			},
 		},
@@ -843,7 +880,7 @@ func TestConvertDashboard(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dt, err := ConvertDashboard(tt.input)
+			dt, err := ConvertDashboard(tt.input, false)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -853,6 +890,348 @@ func TestConvertDashboard(t *testing.T) {
 				}
 				return
 			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if tt.check != nil {
+				tt.check(t, dt)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Grail / DQL dashboard tests
+// ---------------------------------------------------------------------------
+
+func TestConvertDashboardGrail(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      *datadog.Dashboard
+		enableGrail bool
+		check      func(t *testing.T, dt *dynatrace.Dashboard)
+	}{
+		{
+			name:        "log query with grail enabled produces DATA_EXPLORER with DQL",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "Grail Log Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Log Errors",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 1 {
+					t.Fatalf("expected 1 tile, got %d", len(dt.Tiles))
+				}
+				tile := dt.Tiles[0]
+				if tile.TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", tile.TileType)
+				}
+				if len(tile.Queries) == 0 {
+					t.Fatal("expected DQL query in tile")
+				}
+				if tile.Queries[0].DQL == "" {
+					t.Error("expected non-empty DQL query")
+				}
+				if !strings.Contains(tile.Queries[0].DQL, "fetch logs") {
+					t.Errorf("expected DQL with 'fetch logs', got %q", tile.Queries[0].DQL)
+				}
+			},
+		},
+		{
+			name:        "log query with grail disabled produces MARKDOWN fallback",
+			enableGrail: false,
+			input: &datadog.Dashboard{
+				Title: "Classic Log Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Log Errors",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN fallback, got %q", tile.TileType)
+				}
+				if !strings.Contains(tile.Markdown, "fetch logs") {
+					t.Errorf("expected DQL in markdown, got %q", tile.Markdown)
+				}
+			},
+		},
+		{
+			name:        "apm query with grail enabled produces DATA_EXPLORER with DQL",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "APM Grail Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "query_value",
+							Title: "APM Latency",
+							Requests: []datadog.WidgetRequest{
+								{
+									ApmQuery: &datadog.ApmQuery{
+										Index:  "trace-search",
+										Search: &datadog.SearchQuery{Query: "service:web"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", tile.TileType)
+				}
+				if len(tile.Queries) == 0 || tile.Queries[0].DQL == "" {
+					t.Error("expected DQL query for APM in grail mode")
+				}
+			},
+		},
+		{
+			name:        "mixed metric and log with grail: metric as MetricSelector, log as DQL",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "Mixed Grail Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "CPU",
+							Requests: []datadog.WidgetRequest{
+								{Query: "avg:system.cpu.user{*}"},
+							},
+						},
+					},
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Logs",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				if len(dt.Tiles) != 2 {
+					t.Fatalf("expected 2 tiles, got %d", len(dt.Tiles))
+				}
+				// First tile: metric → MetricSelector
+				if dt.Tiles[0].Queries[0].MetricSelector == "" {
+					t.Error("expected MetricSelector for metric tile")
+				}
+				// Second tile: log with grail → DQL
+				if dt.Tiles[1].Queries[0].DQL == "" {
+					t.Error("expected DQL for log tile in grail mode")
+				}
+			},
+		},
+		{
+			name:        "table with log query grail produces DQL tile",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "Table Grail Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "table",
+							Title: "Log Table",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "service:api"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", tile.TileType)
+				}
+				if len(tile.Queries) == 0 || tile.Queries[0].DQL == "" {
+					t.Error("expected DQL in table tile")
+				}
+			},
+		},
+		{
+			name:        "toplist with log query grail produces DQL tile",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "Toplist Grail Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "toplist",
+							Title: "Top Errors",
+							Requests: []datadog.WidgetRequest{
+								{
+									LogQuery: &datadog.LogQuery{
+										Index:  "main",
+										Search: &datadog.SearchQuery{Query: "status:error"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER, got %q", tile.TileType)
+				}
+				if len(tile.Queries) == 0 || tile.Queries[0].DQL == "" {
+					t.Error("expected DQL in toplist tile")
+				}
+			},
+		},
+		{
+			name:        "widget with formula alias in tile name",
+			enableGrail: false,
+			input: &datadog.Dashboard{
+				Title: "Formula Dashboard",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "Error Rate",
+							Requests: []datadog.WidgetRequest{
+								{
+									Queries: []datadog.QueryDef{
+										{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+										{Name: "b", DataSource: "metrics", Query: "avg:system.cpu.system{*}"},
+									},
+									Formulas: []datadog.Formula{
+										{Formula: "a / b * 100", Alias: "Error Rate %"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if !strings.Contains(tile.Name, "formula") {
+					t.Errorf("expected formula info in tile name, got %q", tile.Name)
+				}
+				if !strings.Contains(tile.Name, "Error Rate %") {
+					t.Errorf("expected formula alias in tile name, got %q", tile.Name)
+				}
+			},
+		},
+		{
+			name:        "widget with formula referencing DQL query produces MARKDOWN in classic mode",
+			enableGrail: false,
+			input: &datadog.Dashboard{
+				Title: "DQL Formula Classic",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "DQL Formula",
+							Requests: []datadog.WidgetRequest{
+								{
+									Queries: []datadog.QueryDef{
+										{Name: "a", DataSource: "logs", Query: "status:error"},
+										{Name: "b", DataSource: "logs", Query: "status:info"},
+									},
+									Formulas: []datadog.Formula{
+										{Formula: "a / b"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "MARKDOWN" {
+					t.Errorf("expected MARKDOWN for DQL formula in classic mode, got %q", tile.TileType)
+				}
+			},
+		},
+		{
+			name:        "widget with formula referencing DQL query produces DQL tile in grail mode",
+			enableGrail: true,
+			input: &datadog.Dashboard{
+				Title: "DQL Formula Grail",
+				Widgets: []datadog.Widget{
+					{
+						Definition: datadog.WidgetDefinition{
+							Type:  "timeseries",
+							Title: "DQL Formula",
+							Requests: []datadog.WidgetRequest{
+								{
+									Queries: []datadog.QueryDef{
+										{Name: "a", DataSource: "logs", Query: "status:error"},
+										{Name: "b", DataSource: "logs", Query: "status:info"},
+									},
+									Formulas: []datadog.Formula{
+										{Formula: "a / b"},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			check: func(t *testing.T, dt *dynatrace.Dashboard) {
+				tile := dt.Tiles[0]
+				if tile.TileType != "DATA_EXPLORER" {
+					t.Errorf("expected DATA_EXPLORER for DQL formula in grail mode, got %q", tile.TileType)
+				}
+				if len(tile.Queries) == 0 || tile.Queries[0].DQL == "" {
+					t.Error("expected DQL query for formula in grail mode")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dt, err := ConvertDashboard(tt.input, tt.enableGrail)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -3008,7 +3387,7 @@ func TestConvertAll(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			c := New()
+			c := New(Options{})
 			result, errs := c.ConvertAll(tt.input)
 			if tt.check != nil {
 				tt.check(t, result, errs)

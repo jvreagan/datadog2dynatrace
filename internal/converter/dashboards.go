@@ -11,7 +11,7 @@ import (
 )
 
 // ConvertDashboard converts a DataDog dashboard to a Dynatrace dashboard.
-func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
+func ConvertDashboard(dd *datadog.Dashboard, enableGrail bool) (*dynatrace.Dashboard, error) {
 	dt := &dynatrace.Dashboard{
 		DashboardMetadata: dynatrace.DashboardMetadata{
 			Name:  dd.Title,
@@ -55,7 +55,7 @@ func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
 			dt.Tiles = append(dt.Tiles, *header)
 			// Recurse into nested widgets
 			for j, child := range w.Definition.Widgets {
-				tile, err := convertWidget(&child, len(dd.Widgets)+j)
+				tile, err := convertWidget(&child, len(dd.Widgets)+j, enableGrail)
 				if err != nil {
 					continue
 				}
@@ -63,7 +63,7 @@ func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
 			}
 			continue
 		}
-		tile, err := convertWidget(&w, i)
+		tile, err := convertWidget(&w, i, enableGrail)
 		if err != nil {
 			// Non-fatal: skip unsupported widgets
 			continue
@@ -78,7 +78,7 @@ func ConvertDashboard(dd *datadog.Dashboard) (*dynatrace.Dashboard, error) {
 	return dt, nil
 }
 
-func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
+func convertWidget(w *datadog.Widget, index int, enableGrail bool) (*dynatrace.Tile, error) {
 	tile := &dynatrace.Tile{
 		Configured: true,
 		Bounds:     calculateBounds(w.Layout, index),
@@ -88,25 +88,25 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 
 	switch w.Definition.Type {
 	case "timeseries":
-		return convertTimeseriesWidget(w, tile)
+		return convertTimeseriesWidget(w, tile, enableGrail)
 	case "query_value":
-		return convertQueryValueWidget(w, tile)
+		return convertQueryValueWidget(w, tile, enableGrail)
 	case "toplist":
-		return convertToplistWidget(w, tile)
+		return convertToplistWidget(w, tile, enableGrail)
 	case "note":
 		return convertNoteWidget(w, tile)
 	case "free_text":
 		return convertNoteWidget(w, tile)
 	case "heatmap":
-		return convertApproxWidget(w, tile, "heatmap", convertTimeseriesWidget)
+		return convertApproxWidget(w, tile, "heatmap", enableGrail, convertTimeseriesWidget)
 	case "distribution":
-		return convertApproxWidget(w, tile, "distribution", convertTimeseriesWidget)
+		return convertApproxWidget(w, tile, "distribution", enableGrail, convertTimeseriesWidget)
 	case "change":
-		return convertApproxWidget(w, tile, "change", convertQueryValueWidget)
+		return convertApproxWidget(w, tile, "change", enableGrail, convertQueryValueWidget)
 	case "hostmap":
 		return convertHostmapWidget(w, tile)
 	case "table":
-		return convertTableWidget(w, tile)
+		return convertTableWidget(w, tile, enableGrail)
 	case "slo":
 		return convertSLOWidget(w, tile)
 	default:
@@ -119,14 +119,18 @@ func convertWidget(w *datadog.Widget, index int) (*dynatrace.Tile, error) {
 	}
 }
 
-func convertTimeseriesWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
+func convertTimeseriesWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
 	qIdx := 0
 	var lastDQL queryResult
+	var formulaAlias string
 	for _, req := range w.Definition.Requests {
 		for _, qr := range extractQueries(&req) {
+			if qr.FormulaAlias != "" {
+				formulaAlias = qr.FormulaAlias
+			}
 			if qr.MetricSelector != "" {
 				qIdx++
 				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
@@ -140,22 +144,32 @@ func convertTimeseriesWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrac
 	}
 
 	if len(tile.Queries) > 0 {
+		if formulaAlias != "" {
+			tile.Name = tile.Name + fmt.Sprintf(" (formula: %s)", formulaAlias)
+		}
 		return tile, nil
 	}
 	if lastDQL.DQL != "" {
+		if enableGrail {
+			return buildDQLDataExplorerTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+		}
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
 	return nil, fmt.Errorf("no queries could be converted")
 }
 
-func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
+func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
 	qIdx := 0
 	var lastDQL queryResult
+	var formulaAlias string
 	for _, req := range w.Definition.Requests {
 		for _, qr := range extractQueries(&req) {
+			if qr.FormulaAlias != "" {
+				formulaAlias = qr.FormulaAlias
+			}
 			if qr.MetricSelector != "" {
 				qIdx++
 				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
@@ -169,22 +183,32 @@ func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrac
 	}
 
 	if len(tile.Queries) > 0 {
+		if formulaAlias != "" {
+			tile.Name = tile.Name + fmt.Sprintf(" (formula: %s)", formulaAlias)
+		}
 		return tile, nil
 	}
 	if lastDQL.DQL != "" {
+		if enableGrail {
+			return buildDQLDataExplorerTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+		}
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
 	return nil, fmt.Errorf("no queries could be converted")
 }
 
-func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
+func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
 	qIdx := 0
 	var lastDQL queryResult
+	var formulaAlias string
 	for _, req := range w.Definition.Requests {
 		for _, qr := range extractQueries(&req) {
+			if qr.FormulaAlias != "" {
+				formulaAlias = qr.FormulaAlias
+			}
 			if qr.MetricSelector != "" {
 				qIdx++
 				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
@@ -198,9 +222,15 @@ func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.T
 	}
 
 	if len(tile.Queries) > 0 {
+		if formulaAlias != "" {
+			tile.Name = tile.Name + fmt.Sprintf(" (formula: %s)", formulaAlias)
+		}
 		return tile, nil
 	}
 	if lastDQL.DQL != "" {
+		if enableGrail {
+			return buildDQLDataExplorerTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+		}
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
 	return nil, fmt.Errorf("no queries could be converted")
@@ -241,14 +271,18 @@ func convertHostmapWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.T
 	return tile, nil
 }
 
-func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {
+func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error) {
 	tile.TileType = "DATA_EXPLORER"
 	tile.Name = w.Definition.Title
 
 	qIdx := 0
 	var lastDQL queryResult
+	var formulaAlias string
 	for _, req := range w.Definition.Requests {
 		for _, qr := range extractQueries(&req) {
+			if qr.FormulaAlias != "" {
+				formulaAlias = qr.FormulaAlias
+			}
 			if qr.MetricSelector != "" {
 				qIdx++
 				tile.Queries = append(tile.Queries, dynatrace.DashboardQuery{
@@ -262,9 +296,15 @@ func convertTableWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Til
 	}
 
 	if len(tile.Queries) > 0 {
+		if formulaAlias != "" {
+			tile.Name = tile.Name + fmt.Sprintf(" (formula: %s)", formulaAlias)
+		}
 		return tile, nil
 	}
 	if lastDQL.DQL != "" {
+		if enableGrail {
+			return buildDQLDataExplorerTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
+		}
 		return buildDQLMarkdownTile(w.Definition.Title, lastDQL.DQL, lastDQL.SourceType, tile.Bounds), nil
 	}
 	return nil, fmt.Errorf("no queries could be converted")
@@ -278,10 +318,10 @@ func convertSLOWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile,
 }
 
 // convertApproxWidget wraps a converter and appends an approximation note to the tile name.
-type widgetConverter func(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error)
+type widgetConverter func(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error)
 
-func convertApproxWidget(w *datadog.Widget, tile *dynatrace.Tile, sourceType string, fn widgetConverter) (*dynatrace.Tile, error) {
-	result, err := fn(w, tile)
+func convertApproxWidget(w *datadog.Widget, tile *dynatrace.Tile, sourceType string, enableGrail bool, fn widgetConverter) (*dynatrace.Tile, error) {
+	result, err := fn(w, tile, enableGrail)
 	if err != nil {
 		return nil, err
 	}
@@ -295,10 +335,12 @@ type queryResult struct {
 	MetricSelector string
 	DQL            string
 	SourceType     string // "metric", "log", or "apm"
+	FormulaAlias   string // non-empty when result came from a formula evaluation
 }
 
 // extractQueries extracts all query results from a widget request,
 // processing every entry in req.Queries (not just the first one).
+// When formulas are present, named queries are combined via formula evaluation.
 func extractQueries(req *datadog.WidgetRequest) []queryResult {
 	var results []queryResult
 
@@ -310,11 +352,96 @@ func extractQueries(req *datadog.WidgetRequest) []queryResult {
 		}
 	}
 
-	// Process ALL entries in queries/formulas format
+	// Build named query map for formula evaluation
+	nameToSelector := make(map[string]string)
+	nameToDQL := make(map[string]string)
 	for _, qd := range req.Queries {
-		parsed, err := query.Parse(qd.Query)
-		if err == nil {
-			results = append(results, queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"})
+		if qd.DataSource == "logs" || qd.DataSource == "spans" {
+			nameToDQL[qd.Name] = query.ToDQL(qd.Query)
+		} else {
+			parsed, err := query.Parse(qd.Query)
+			if err == nil {
+				nameToSelector[qd.Name] = query.ToMetricSelector(parsed)
+			}
+		}
+	}
+
+	// If formulas are present, evaluate them instead of emitting individual queries
+	if len(req.Formulas) > 0 && len(req.Queries) > 0 {
+		for _, f := range req.Formulas {
+			// Try metric selector formula first
+			if len(nameToSelector) > 0 {
+				composed, err := query.EvaluateFormula(f.Formula, nameToSelector)
+				if err == nil {
+					alias := f.Alias
+					if alias == "" {
+						alias = f.Formula
+					}
+					results = append(results, queryResult{
+						MetricSelector: composed,
+						SourceType:     "metric",
+						FormulaAlias:   alias,
+					})
+					continue
+				}
+			}
+			// Try DQL formula
+			if len(nameToDQL) > 0 {
+				composed, err := query.EvaluateFormula(f.Formula, nameToDQL)
+				if err == nil {
+					alias := f.Alias
+					if alias == "" {
+						alias = f.Formula
+					}
+					results = append(results, queryResult{
+						DQL:          composed,
+						SourceType:   "log",
+						FormulaAlias: alias,
+					})
+					continue
+				}
+			}
+			// Mixed or unresolvable — try combining both maps
+			combined := make(map[string]string)
+			for k, v := range nameToSelector {
+				combined[k] = v
+			}
+			for k, v := range nameToDQL {
+				combined[k] = v
+			}
+			composed, err := query.EvaluateFormula(f.Formula, combined)
+			if err == nil {
+				alias := f.Alias
+				if alias == "" {
+					alias = f.Formula
+				}
+				// If any DQL var was used, result is DQL
+				hasDQL := false
+				for k := range nameToDQL {
+					if strings.Contains(f.Formula, k) {
+						hasDQL = true
+						break
+					}
+				}
+				if hasDQL {
+					results = append(results, queryResult{DQL: composed, SourceType: "log", FormulaAlias: alias})
+				} else {
+					results = append(results, queryResult{MetricSelector: composed, SourceType: "metric", FormulaAlias: alias})
+				}
+			}
+		}
+		return results
+	}
+
+	// No formulas — emit individual queries as before
+	for _, qd := range req.Queries {
+		if qd.DataSource == "logs" || qd.DataSource == "spans" {
+			results = append(results, queryResult{DQL: query.ToDQL(qd.Query), SourceType: "log"})
+		} else {
+			parsed, err := query.Parse(qd.Query)
+			if err == nil {
+				results = append(results, queryResult{MetricSelector: query.ToMetricSelector(parsed), SourceType: "metric"})
+			}
 		}
 	}
 
@@ -353,6 +480,27 @@ func buildDQLMarkdownTile(title, dqlQuery, sourceType string, bounds dynatrace.T
 		Name:       title,
 		Markdown:   markdown,
 		Bounds:     bounds,
+	}
+}
+
+// buildDQLDataExplorerTile creates a DATA_EXPLORER tile with a native DQL query
+// for Grail-powered dashboards.
+func buildDQLDataExplorerTile(title, dqlQuery, sourceType string, bounds dynatrace.TileBounds) *dynatrace.Tile {
+	label := "Log"
+	if sourceType == "apm" {
+		label = "APM"
+	}
+	return &dynatrace.Tile{
+		Configured: true,
+		TileType:   "DATA_EXPLORER",
+		Name:       fmt.Sprintf("%s (%s DQL)", title, label),
+		Bounds:     bounds,
+		Queries: []dynatrace.DashboardQuery{
+			{
+				ID:  "Q1",
+				DQL: dqlQuery,
+			},
+		},
 	}
 }
 

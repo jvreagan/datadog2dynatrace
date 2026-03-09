@@ -48,7 +48,7 @@ func TestLoggingConvertAllInfoCounts(t *testing.T) {
 		},
 	}
 
-	c := New()
+	c := New(Options{})
 	c.ConvertAll(ext)
 
 	out := buf.String()
@@ -76,7 +76,7 @@ func TestLoggingConvertAllDebugPerResource(t *testing.T) {
 		},
 	}
 
-	c := New()
+	c := New(Options{})
 	c.ConvertAll(ext)
 
 	out := buf.String()
@@ -98,7 +98,7 @@ func TestLoggingConvertAllWarnOnError(t *testing.T) {
 		},
 	}
 
-	c := New()
+	c := New(Options{})
 	c.ConvertAll(ext)
 
 	out := buf.String()

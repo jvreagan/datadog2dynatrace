@@ -19,7 +19,7 @@ func New(ddClient *datadog.Client, dtClient *dynatrace.Client) *API {
 	return &API{
 		ddClient: ddClient,
 		dtClient: dtClient,
-		conv:     converter.New(),
+		conv:     converter.New(converter.Options{}),
 	}
 }
 

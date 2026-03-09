@@ -173,7 +173,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 
 	// Step 3: Convert
 	fmt.Println("Converting resources...")
-	conv := converter.New()
+	conv := converter.New(converter.Options{EnableGrail: cfg.EnableGrail})
 	result, convErrors := conv.ConvertAll(extraction)
 
 	if len(convErrors) > 0 {

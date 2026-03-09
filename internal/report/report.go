@@ -228,26 +228,43 @@ func (r *Report) AddDashboardDetails(dashboards []dynatrace.Dashboard) {
 	})
 }
 
-// AddDQLQueryNotes scans dashboard MARKDOWN tiles for DQL patterns
-// and lists queries that may need attention in a Dynatrace Notebook.
+// AddDQLQueryNotes scans dashboard tiles for DQL patterns and lists queries
+// that may need attention. In grail mode, DQL tiles are natively embedded;
+// in classic mode, they fall back to MARKDOWN tiles requiring a Notebook.
 func (r *Report) AddDQLQueryNotes(dashboards []dynatrace.Dashboard) {
-	var notes []string
+	var markdownNotes, grailNotes []string
 	for _, d := range dashboards {
 		for _, t := range d.Tiles {
 			if t.TileType == "MARKDOWN" && strings.Contains(t.Markdown, "fetch logs") {
-				notes = append(notes, fmt.Sprintf("- Dashboard %q, tile %q contains a DQL query that requires a Dynatrace Notebook", d.DashboardMetadata.Name, t.Name))
+				markdownNotes = append(markdownNotes, fmt.Sprintf("- Dashboard %q, tile %q contains a DQL query that requires a Dynatrace Notebook", d.DashboardMetadata.Name, t.Name))
+			}
+			if t.TileType == "DATA_EXPLORER" {
+				for _, q := range t.Queries {
+					if q.DQL != "" {
+						grailNotes = append(grailNotes, fmt.Sprintf("- Dashboard %q, tile %q has a native DQL query (Grail)", d.DashboardMetadata.Name, t.Name))
+					}
+				}
 			}
 		}
 	}
 
-	if len(notes) == 0 {
+	if len(markdownNotes) == 0 && len(grailNotes) == 0 {
 		return
 	}
 
 	var sb strings.Builder
-	sb.WriteString("The following tiles contain DQL queries that cannot be displayed in classic Dynatrace dashboards.\nUse **Dynatrace Notebooks** to run these queries:\n\n")
-	for _, note := range notes {
-		sb.WriteString(note + "\n")
+	if len(grailNotes) > 0 {
+		sb.WriteString("The following tiles contain native DQL queries (Grail-powered dashboard):\n\n")
+		for _, note := range grailNotes {
+			sb.WriteString(note + "\n")
+		}
+		sb.WriteString("\n")
+	}
+	if len(markdownNotes) > 0 {
+		sb.WriteString("The following tiles contain DQL queries that cannot be displayed in classic Dynatrace dashboards.\nUse **Dynatrace Notebooks** to run these queries:\n\n")
+		for _, note := range markdownNotes {
+			sb.WriteString(note + "\n")
+		}
 	}
 
 	r.sections = append(r.sections, section{

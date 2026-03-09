@@ -66,6 +66,7 @@ type SeriesDimension struct {
 type DashboardQuery struct {
 	ID             string `json:"id"`
 	MetricSelector string `json:"metricSelector,omitempty"`
+	DQL            string `json:"dql,omitempty"`
 	SpaceAggregation string `json:"spaceAggregation,omitempty"`
 	TimeAggregation  string `json:"timeAggregation,omitempty"`
 }

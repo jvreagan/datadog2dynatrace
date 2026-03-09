@@ -25,6 +25,7 @@ type Config struct {
 	ReportFile string          `mapstructure:"report_file"`
 	Verbose    bool            `mapstructure:"verbose"`
 	Debug      bool            `mapstructure:"debug"`
+	EnableGrail bool           `mapstructure:"enable_grail"`
 }
 
 type DataDogConfig struct {
@@ -72,6 +73,7 @@ func BindFlags(cmd *cobra.Command) {
 	flags.String("report-file", "./migration-report.md", "Migration report path")
 	flags.Bool("verbose", false, "Enable verbose output (info-level logging)")
 	flags.Bool("debug", false, "Enable debug output (debug-level logging)")
+	flags.Bool("enable-grail", false, "Emit native DQL tiles for Grail-powered dashboards")
 
 	flags.String("dd-api-key", "", "DataDog API key")
 	flags.String("dd-app-key", "", "DataDog Application key")
@@ -90,6 +92,7 @@ func BindFlags(cmd *cobra.Command) {
 	viper.BindPFlag("report_file", flags.Lookup("report-file"))
 	viper.BindPFlag("verbose", flags.Lookup("verbose"))
 	viper.BindPFlag("debug", flags.Lookup("debug"))
+	viper.BindPFlag("enable_grail", flags.Lookup("enable-grail"))
 
 	viper.BindPFlag("datadog.api_key", flags.Lookup("dd-api-key"))
 	viper.BindPFlag("datadog.app_key", flags.Lookup("dd-app-key"))

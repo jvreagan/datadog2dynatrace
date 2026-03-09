@@ -47,7 +47,7 @@ func TestEndToEndPipeline(t *testing.T) {
 	}
 
 	// Step 2: Convert DD → DT
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, errs := conv.ConvertAll(ext)
 
 	// Log conversion errors (some are expected for complex queries)
@@ -140,7 +140,7 @@ func TestEndToEndDashboardContent(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.Dashboards) == 0 {
@@ -180,7 +180,7 @@ func TestEndToEndMonitorConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.MetricEvents) == 0 {
@@ -226,7 +226,7 @@ func TestEndToEndSLOConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.SLOs) == 0 {
@@ -253,7 +253,7 @@ func TestEndToEndSyntheticConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.Synthetics) < 2 {
@@ -290,7 +290,7 @@ func TestEndToEndLogPipelineConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.LogRules) == 0 {
@@ -314,7 +314,7 @@ func TestEndToEndTerraformContent(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	tfDir := t.TempDir()
@@ -387,7 +387,7 @@ func TestEndToEndMaintenanceConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.Maintenance) < 2 {
@@ -423,7 +423,7 @@ func TestEndToEndNotebookConversion(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, _ := conv.ConvertAll(ext)
 
 	if len(result.Notebooks) == 0 {
@@ -456,7 +456,7 @@ func TestEndToEndReportContent(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, errs := conv.ConvertAll(ext)
 
 	rpt := report.New()
@@ -505,7 +505,7 @@ func TestEndToEndErrorCollection(t *testing.T) {
 		t.Fatalf("import failed: %v", err)
 	}
 
-	conv := converter.New()
+	conv := converter.New(converter.Options{})
 	result, errs := conv.ConvertAll(ext)
 
 	// Even if there are conversion errors, the pipeline should continue

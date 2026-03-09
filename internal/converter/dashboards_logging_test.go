@@ -25,7 +25,7 @@ func TestLoggingDashboardWidgetType(t *testing.T) {
 		},
 	}
 
-	ConvertDashboard(dd)
+	ConvertDashboard(dd, false)
 
 	out := buf.String()
 	if !strings.Contains(out, `[DEBUG] converting widget type "timeseries"`) {
@@ -58,7 +58,7 @@ func TestLoggingDashboardUnsupportedWidget(t *testing.T) {
 		},
 	}
 
-	ConvertDashboard(dd)
+	ConvertDashboard(dd, false)
 
 	out := buf.String()
 	if !strings.Contains(out, `unsupported widget type "sunburst"`) {
