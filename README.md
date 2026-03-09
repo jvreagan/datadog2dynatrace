@@ -9,6 +9,7 @@ A CLI tool that converts DataDog monitoring configurations to Dynatrace Cloud eq
 - **File import**: Import from DataDog JSON exports or Terraform files
 - **Interactive selection**: Choose which resources to migrate
 - **Dry run**: Preview changes before applying
+- **Metric selector validation**: Validate converted selectors against the Dynatrace API before output
 - **Migration report**: Markdown report of what was converted and any issues
 
 ### Supported Resources
@@ -92,6 +93,26 @@ datadog2dynatrace convert --source api --target api --dry-run
 datadog2dynatrace convert --source file --input-dir ./dd-exports --target terraform
 ```
 
+### Export to JSON
+
+```bash
+datadog2dynatrace convert --source api --target json --output-dir ./output
+```
+
+### Validate Metric Selectors
+
+Check that converted metric selectors are valid against your Dynatrace environment before generating output:
+
+```bash
+datadog2dynatrace convert --source file --input-dir ./dd-exports --target terraform --validate
+```
+
+### Enable Grail (DQL) Dashboards
+
+```bash
+datadog2dynatrace convert --enable-grail
+```
+
 ### Convert All (Skip Interactive Selection)
 
 ```bash
@@ -104,12 +125,17 @@ datadog2dynatrace convert --all
 |------|-------------|---------|
 | `--source` | Input source: `api` or `file` | `api` |
 | `--input-dir` | Directory with DD export files | |
-| `--target` | Output target: `api` or `terraform` | `terraform` |
-| `--output-dir` | Terraform output directory | `./dynatrace-terraform/` |
+| `--target` | Output target: `api`, `terraform`, or `json` | `terraform` |
+| `--output-dir` | Terraform/JSON output directory | `./dynatrace-terraform/` |
 | `--dry-run` | Preview without applying changes | `false` |
+| `--validate` | Validate metric selectors against Dynatrace API | `false` |
+| `--skip-existing` | Skip resources that already exist in Dynatrace | `true` |
 | `--fail-fast` | Stop on first error | `false` |
 | `--all` | Convert all resources (skip selection) | `false` |
+| `--enable-grail` | Emit native DQL tiles for Grail-powered dashboards | `false` |
 | `--report-file` | Migration report path | `./migration-report.md` |
+| `--verbose` | Enable verbose output (info-level logging) | `false` |
+| `--debug` | Enable debug output (debug-level logging) | `false` |
 | `--dd-api-key` | DataDog API key | |
 | `--dd-app-key` | DataDog Application key | |
 | `--dd-site` | DataDog site | `datadoghq.com` |
