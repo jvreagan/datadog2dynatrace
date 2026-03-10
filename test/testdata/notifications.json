@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "name": "Engineering Slack",
+    "type": "slack",
+    "config": {
+      "account": "engineering",
+      "url": "https://hooks.slack.com/services/T00000/B00000/XXXXXXXXXXXX",
+      "channel": "#engineering-alerts"
+    }
+  },
+  {
+    "id": 2,
+    "name": "Oncall PagerDuty",
+    "type": "pagerduty",
+    "config": {
+      "service_name": "Production Oncall",
+      "service_key": "pd-integration-key-abc123"
+    }
+  },
+  {
+    "id": 3,
+    "name": "Incident Webhook",
+    "type": "webhook",
+    "config": {
+      "url": "https://hooks.example.com/incident",
+      "payload": "{\"text\": \"Alert: {{event.title}}\"}"
+    }
+  },
+  {
+    "id": 4,
+    "name": "Team Email",
+    "type": "email",
+    "config": {
+      "emails": "oncall@example.com,team-leads@example.com"
+    }
+  }
+]

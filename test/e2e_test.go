@@ -48,6 +48,9 @@ func TestEndToEndPipeline(t *testing.T) {
 	if len(ext.Notebooks) != 1 {
 		t.Errorf("expected 1 notebook, got %d", len(ext.Notebooks))
 	}
+	if len(ext.Notifications) != 4 {
+		t.Errorf("expected 4 notifications, got %d", len(ext.Notifications))
+	}
 
 	// Step 2: Convert DD → DT
 	conv := converter.New(converter.Options{})
@@ -79,6 +82,9 @@ func TestEndToEndPipeline(t *testing.T) {
 	}
 	if len(result.Notebooks) == 0 {
 		t.Error("expected at least 1 notebook")
+	}
+	if len(result.Notifications) == 0 {
+		t.Error("expected at least 1 notification")
 	}
 
 	// Step 3: Generate Terraform output
@@ -452,6 +458,63 @@ func TestEndToEndNotebookConversion(t *testing.T) {
 	}
 }
 
+// TestEndToEndNotificationConversion verifies notification channels are converted correctly.
+func TestEndToEndNotificationConversion(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	if len(ext.Notifications) != 4 {
+		t.Fatalf("expected 4 notifications, got %d", len(ext.Notifications))
+	}
+
+	conv := converter.New(converter.Options{})
+	result, errs := conv.ConvertAll(ext)
+	for _, e := range errs {
+		t.Logf("conversion warning: %v", e)
+	}
+
+	if len(result.Notifications) != 4 {
+		t.Fatalf("expected 4 converted notifications, got %d", len(result.Notifications))
+	}
+
+	typeCount := make(map[string]int)
+	for _, n := range result.Notifications {
+		typeCount[n.Type]++
+
+		switch n.Type {
+		case "PAGER_DUTY":
+			if n.Config["account"] == nil || n.Config["account"] == "" {
+				t.Error("PagerDuty notification missing account")
+			}
+			if n.Config["integrationKey"] == nil || n.Config["integrationKey"] == "" {
+				t.Error("PagerDuty notification missing integrationKey")
+			}
+		case "SLACK":
+			if n.Config["url"] == nil || n.Config["url"] == "" {
+				t.Error("Slack notification missing url")
+			}
+			if n.Config["channel"] == nil || n.Config["channel"] == "" {
+				t.Error("Slack notification missing channel")
+			}
+		}
+	}
+
+	if typeCount["SLACK"] == 0 {
+		t.Error("expected at least one SLACK notification")
+	}
+	if typeCount["PAGER_DUTY"] == 0 {
+		t.Error("expected at least one PAGER_DUTY notification")
+	}
+	if typeCount["WEBHOOK"] == 0 {
+		t.Error("expected at least one WEBHOOK notification")
+	}
+	if typeCount["EMAIL"] == 0 {
+		t.Error("expected at least one EMAIL notification")
+	}
+}
+
 // TestEndToEndReportContent verifies the migration report has all expected sections.
 func TestEndToEndReportContent(t *testing.T) {
 	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
@@ -515,7 +578,7 @@ func TestEndToEndErrorCollection(t *testing.T) {
 	// and produce results for the resources it can handle
 	totalConverted := len(result.Dashboards) + len(result.MetricEvents) +
 		len(result.SLOs) + len(result.Synthetics) + len(result.LogRules) +
-		len(result.Maintenance) + len(result.Notebooks)
+		len(result.Maintenance) + len(result.Notifications) + len(result.Notebooks)
 
 	if totalConverted == 0 {
 		t.Error("expected at least some conversions to succeed")

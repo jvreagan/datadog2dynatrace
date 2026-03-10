@@ -48,7 +48,10 @@ func GenerateNotifications(notifications []dynatrace.NotificationIntegration) st
 			sb.WriteString(fmt.Sprintf("  name    = %q\n", n.Name))
 			sb.WriteString(fmt.Sprintf("  active  = %t\n", n.Active))
 			if acct, ok := n.Config["account"]; ok {
-				sb.WriteString(fmt.Sprintf("  account = %q\n", acct))
+				sb.WriteString(fmt.Sprintf("  account         = %q\n", acct))
+			}
+			if key, ok := n.Config["integrationKey"]; ok {
+				sb.WriteString(fmt.Sprintf("  integration_key = %q\n", key))
 			}
 
 		default:

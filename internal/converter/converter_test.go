@@ -3182,15 +3182,19 @@ func TestConvertNotification(t *testing.T) {
 				Name: "Oncall PD",
 				Type: "pagerduty",
 				Config: map[string]interface{}{
-					"service_key": "abc123def456",
+					"service_name": "Production Oncall",
+					"service_key":  "abc123def456",
 				},
 			},
 			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
 				if ni.Type != "PAGER_DUTY" {
 					t.Errorf("expected PAGER_DUTY, got %q", ni.Type)
 				}
-				if ni.Config["account"] != "abc123def456" {
-					t.Errorf("expected service_key mapped to account, got %v", ni.Config["account"])
+				if ni.Config["account"] != "Production Oncall" {
+					t.Errorf("expected service_name mapped to account, got %v", ni.Config["account"])
+				}
+				if ni.Config["integrationKey"] != "abc123def456" {
+					t.Errorf("expected service_key mapped to integrationKey, got %v", ni.Config["integrationKey"])
 				}
 			},
 		},

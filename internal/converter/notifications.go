@@ -27,8 +27,11 @@ func ConvertNotification(dd *datadog.NotificationChannel) (*dynatrace.Notificati
 
 	case "pagerduty":
 		ni.Type = "PAGER_DUTY"
+		if name, ok := dd.Config["service_name"]; ok {
+			ni.Config["account"] = name
+		}
 		if key, ok := dd.Config["service_key"]; ok {
-			ni.Config["account"] = key
+			ni.Config["integrationKey"] = key
 		}
 
 	case "email":

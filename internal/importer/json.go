@@ -63,6 +63,8 @@ func importJSONFile(path, name string, result *datadog.ExtractionResult) error {
 		return importDowntimes(data, result)
 	case strings.Contains(name, "notebook"):
 		return importNotebooks(data, result)
+	case strings.Contains(name, "notification"):
+		return importNotifications(data, result)
 	default:
 		// Try auto-detection based on content
 		return autoImport(data, result)
@@ -200,6 +202,21 @@ func importNotebooks(data []byte, result *datadog.ExtractionResult) error {
 		return fmt.Errorf("parsing notebooks: %w", err)
 	}
 	result.Notebooks = append(result.Notebooks, notebook)
+	return nil
+}
+
+func importNotifications(data []byte, result *datadog.ExtractionResult) error {
+	var notifications []datadog.NotificationChannel
+	if err := json.Unmarshal(data, &notifications); err == nil {
+		result.Notifications = append(result.Notifications, notifications...)
+		return nil
+	}
+
+	var notification datadog.NotificationChannel
+	if err := json.Unmarshal(data, &notification); err != nil {
+		return fmt.Errorf("parsing notifications: %w", err)
+	}
+	result.Notifications = append(result.Notifications, notification)
 	return nil
 }
 

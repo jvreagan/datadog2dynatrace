@@ -45,6 +45,31 @@ func (c *Client) GetNotificationChannels() ([]NotificationChannel, error) {
 		}
 		if err := json.Unmarshal(data, &accounts); err == nil {
 			for _, acc := range accounts {
+				// Try to fetch channel-level config with webhook URLs
+				chEndpoint := fmt.Sprintf("/api/v1/integration/slack/configuration/channels/%s", acc.Name)
+				if chData, chErr := c.get(chEndpoint); chErr == nil {
+					var slackChannels []struct {
+						ChannelName string `json:"channel_name"`
+						WebhookURL  string `json:"webhook_url"`
+					}
+					if json.Unmarshal(chData, &slackChannels) == nil && len(slackChannels) > 0 {
+						for _, ch := range slackChannels {
+							channels = append(channels, NotificationChannel{
+								ID:   id,
+								Name: acc.Name + "/" + ch.ChannelName,
+								Type: "slack",
+								Config: map[string]interface{}{
+									"account": acc.Name,
+									"url":     ch.WebhookURL,
+									"channel": ch.ChannelName,
+								},
+							})
+							id++
+						}
+						continue
+					}
+				}
+				// Fall back to account-only if channel endpoint fails
 				channels = append(channels, NotificationChannel{
 					ID:   id,
 					Name: acc.Name,
