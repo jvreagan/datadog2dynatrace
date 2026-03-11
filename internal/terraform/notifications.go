@@ -54,6 +54,22 @@ func GenerateNotifications(notifications []dynatrace.NotificationIntegration) st
 				sb.WriteString(fmt.Sprintf("  integration_key = %q\n", key))
 			}
 
+		case "OPS_GENIE":
+			sb.WriteString(fmt.Sprintf("resource \"dynatrace_opsgenie_notification\" \"%s\" {\n", uniqueName(name, i)))
+			sb.WriteString(fmt.Sprintf("  name    = %q\n", n.Name))
+			sb.WriteString(fmt.Sprintf("  active  = %t\n", n.Active))
+			if key, ok := n.Config["apiKey"]; ok {
+				sb.WriteString(fmt.Sprintf("  api_key = %q\n", key))
+			}
+
+		case "VICTOR_OPS":
+			sb.WriteString(fmt.Sprintf("resource \"dynatrace_victorops_notification\" \"%s\" {\n", uniqueName(name, i)))
+			sb.WriteString(fmt.Sprintf("  name    = %q\n", n.Name))
+			sb.WriteString(fmt.Sprintf("  active  = %t\n", n.Active))
+			if key, ok := n.Config["apiKey"]; ok {
+				sb.WriteString(fmt.Sprintf("  api_key = %q\n", key))
+			}
+
 		default:
 			sb.WriteString(fmt.Sprintf("# Unsupported notification type: %s\n", n.Type))
 			sb.WriteString(fmt.Sprintf("# resource \"dynatrace_notification\" \"%s\" { ... }\n\n", uniqueName(name, i)))

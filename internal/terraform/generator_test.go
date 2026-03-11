@@ -181,6 +181,18 @@ func TestGenerateNotifications(t *testing.T) {
 			Active: true,
 			Config: map[string]interface{}{"account": "Production Oncall", "integrationKey": "pd-key-123"},
 		},
+		{
+			Name:   "OpsGenie Alert",
+			Type:   "OPS_GENIE",
+			Active: true,
+			Config: map[string]interface{}{"apiKey": "og-key-456"},
+		},
+		{
+			Name:   "VictorOps Alert",
+			Type:   "VICTOR_OPS",
+			Active: true,
+			Config: map[string]interface{}{"apiKey": "vo-key-789"},
+		},
 	}
 	result := GenerateNotifications(notifications)
 	if !strings.Contains(result, "dynatrace_slack_notification") {
@@ -200,6 +212,22 @@ func TestGenerateNotifications(t *testing.T) {
 	}
 	if !strings.Contains(result, "Production Oncall") {
 		t.Error("expected PagerDuty account name in output")
+	}
+	if !strings.Contains(result, "dynatrace_opsgenie_notification") {
+		t.Error("expected dynatrace_opsgenie_notification resource type")
+	}
+	if !strings.Contains(result, "og-key-456") {
+		t.Error("expected OpsGenie API key value in output")
+	}
+	if !strings.Contains(result, "dynatrace_victorops_notification") {
+		t.Error("expected dynatrace_victorops_notification resource type")
+	}
+	if !strings.Contains(result, "vo-key-789") {
+		t.Error("expected VictorOps API key value in output")
+	}
+	// Verify no "Unsupported" comments for known types
+	if strings.Contains(result, "Unsupported") {
+		t.Error("unexpected 'Unsupported' comment in output for known notification types")
 	}
 }
 
