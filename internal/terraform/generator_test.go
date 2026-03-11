@@ -1,6 +1,8 @@
 package terraform
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -276,5 +278,331 @@ func TestSanitizeTFName(t *testing.T) {
 		if result != expected {
 			t.Errorf("sanitizeTFName(%q) = %q, want %q", input, result, expected)
 		}
+	}
+}
+
+func TestNewGenerator(t *testing.T) {
+	g := NewGenerator("/tmp/test-output")
+	if g == nil {
+		t.Fatal("NewGenerator returned nil")
+	}
+	if g.outputDir != "/tmp/test-output" {
+		t.Errorf("outputDir: got %q, want %q", g.outputDir, "/tmp/test-output")
+	}
+}
+
+func TestGenerateAll(t *testing.T) {
+	dir := t.TempDir()
+	g := NewGenerator(dir)
+
+	result := &dynatrace.ConversionResult{
+		Dashboards: []dynatrace.Dashboard{
+			{DashboardMetadata: dynatrace.DashboardMetadata{Name: "Test"}},
+		},
+		MetricEvents: []dynatrace.MetricEvent{
+			{Summary: "CPU", Enabled: true, EventType: "CUSTOM_ALERT", MetricSelector: "builtin:host.cpu.user",
+				MonitoringStrategy: dynatrace.MonitoringStrategy{Type: "STATIC_THRESHOLD", AlertCondition: "ABOVE", Threshold: 90, Samples: 5, ViolatingSamples: 3, DealertingSamples: 5}},
+		},
+		SLOs: []dynatrace.SLO{
+			{Name: "Avail", Enabled: true, MetricExpression: "(100)*(good)/(total)", EvaluationType: "AGGREGATE", Target: 99.9, Timeframe: "-1M"},
+		},
+		Synthetics: []dynatrace.SyntheticMonitor{
+			{Name: "Health", Type: "HTTP", Enabled: true, FrequencyMin: 5, Locations: []string{"GEOLOCATION-1"}},
+		},
+		LogRules: []dynatrace.LogProcessingRule{
+			{Name: "Parse", Enabled: true, Query: "source:nginx"},
+		},
+		Maintenance: []dynatrace.MaintenanceWindow{
+			{Name: "Deploy", Type: "PLANNED", Suppression: "DETECT_PROBLEMS_DONT_ALERT",
+				Schedule: dynatrace.MaintenanceSchedule{RecurrenceType: "ONCE", Start: "2024-01-01 00:00", End: "2024-01-01 02:00", ZoneID: "UTC"}},
+		},
+		Notifications: []dynatrace.NotificationIntegration{
+			{Name: "Slack", Type: "SLACK", Active: true, Config: map[string]interface{}{"url": "https://hooks.slack.com/test"}},
+		},
+		Notebooks: []dynatrace.DynatraceNotebook{
+			{Name: "NB", Sections: []dynatrace.NotebookSection{{Type: "markdown", Content: "# Test"}}},
+		},
+	}
+
+	if err := g.GenerateAll(result); err != nil {
+		t.Fatalf("GenerateAll failed: %v", err)
+	}
+
+	expectedFiles := []string{
+		"provider.tf", "dashboards.tf", "metric_events.tf", "slos.tf",
+		"synthetics.tf", "log_processing.tf", "maintenance.tf",
+		"notifications.tf", "notebooks.tf",
+	}
+	for _, f := range expectedFiles {
+		info, err := os.Stat(filepath.Join(dir, f))
+		if err != nil {
+			t.Errorf("expected file %s: %v", f, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("file %s is empty", f)
+		}
+	}
+}
+
+func TestGenerateAllEmptyResult(t *testing.T) {
+	dir := t.TempDir()
+	g := NewGenerator(dir)
+
+	result := &dynatrace.ConversionResult{}
+	if err := g.GenerateAll(result); err != nil {
+		t.Fatalf("GenerateAll failed: %v", err)
+	}
+
+	// Only provider.tf should exist
+	if _, err := os.Stat(filepath.Join(dir, "provider.tf")); err != nil {
+		t.Error("expected provider.tf to exist")
+	}
+
+	// Optional files should not be created for empty results
+	optionalFiles := []string{"dashboards.tf", "metric_events.tf", "slos.tf",
+		"synthetics.tf", "log_processing.tf", "maintenance.tf",
+		"notifications.tf", "notebooks.tf"}
+	for _, f := range optionalFiles {
+		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
+			t.Errorf("did not expect %s for empty result", f)
+		}
+	}
+}
+
+func TestGenerateAllBadDirectory(t *testing.T) {
+	g := NewGenerator("/proc/nonexistent/impossible/path")
+	result := &dynatrace.ConversionResult{}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error for bad output directory")
+	}
+}
+
+func TestWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	g := NewGenerator(dir)
+
+	if err := g.writeFile("test.tf", "content here"); err != nil {
+		t.Fatalf("writeFile failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "test.tf"))
+	if err != nil {
+		t.Fatalf("reading file: %v", err)
+	}
+	if string(data) != "content here" {
+		t.Errorf("file content: got %q, want %q", string(data), "content here")
+	}
+}
+
+func TestGenerateSyntheticsWithLocations(t *testing.T) {
+	monitors := []dynatrace.SyntheticMonitor{
+		{
+			Name:         "API Check",
+			Type:         "HTTP",
+			Enabled:      true,
+			FrequencyMin: 10,
+			Locations:    []string{"GEOLOCATION-1", "GEOLOCATION-2"},
+		},
+	}
+	result := GenerateSynthetics(monitors)
+	if !strings.Contains(result, "GEOLOCATION-1") {
+		t.Error("expected location in output")
+	}
+	if !strings.Contains(result, "locations") {
+		t.Error("expected locations field")
+	}
+	if !strings.Contains(result, "frequency = 10") {
+		t.Error("expected frequency in output")
+	}
+}
+
+func TestGenerateSyntheticsWithScript(t *testing.T) {
+	monitors := []dynatrace.SyntheticMonitor{
+		{
+			Name:    "Scripted Check",
+			Type:    "HTTP",
+			Enabled: true,
+			Script: &dynatrace.SyntheticScript{
+				Version: "1.0",
+				Type:    "availability",
+				Requests: []dynatrace.ScriptRequest{
+					{Description: "GET /health", URL: "https://example.com/health"},
+				},
+			},
+		},
+	}
+	result := GenerateSynthetics(monitors)
+	if !strings.Contains(result, "script") {
+		t.Error("expected script block in output")
+	}
+	if !strings.Contains(result, "jsonencode") {
+		t.Error("expected jsonencode for script")
+	}
+	if !strings.Contains(result, "https://example.com/health") {
+		t.Error("expected script URL in output")
+	}
+}
+
+func TestGenerateSyntheticsWithAnomalyDetection(t *testing.T) {
+	monitors := []dynatrace.SyntheticMonitor{
+		{
+			Name:    "Monitored Check",
+			Type:    "HTTP",
+			Enabled: true,
+			AnomalyDetection: &dynatrace.AnomalyDetection{
+				OutageHandling: &dynatrace.OutageHandling{
+					GlobalOutage: true,
+					LocalOutage:  false,
+					RetryOnError: true,
+				},
+			},
+		},
+	}
+	result := GenerateSynthetics(monitors)
+	if !strings.Contains(result, "anomaly_detection") {
+		t.Error("expected anomaly_detection block")
+	}
+	if !strings.Contains(result, "outage_handling") {
+		t.Error("expected outage_handling block")
+	}
+	if !strings.Contains(result, "global_outage  = true") {
+		t.Error("expected global_outage = true")
+	}
+	if !strings.Contains(result, "retry_on_error = true") {
+		t.Error("expected retry_on_error = true")
+	}
+}
+
+func TestGenerateMaintenanceWithScope(t *testing.T) {
+	windows := []dynatrace.MaintenanceWindow{
+		{
+			Name:        "Scoped Maintenance",
+			Type:        "PLANNED",
+			Suppression: "DONT_DETECT_PROBLEMS",
+			Description: "Monthly deploy window",
+			Schedule: dynatrace.MaintenanceSchedule{
+				RecurrenceType: "MONTHLY",
+				Start:          "2024-01-01 00:00",
+				End:            "2024-01-01 04:00",
+				ZoneID:         "America/New_York",
+			},
+			Scope: &dynatrace.MaintenanceScope{
+				Matches: []dynatrace.MaintenanceScopeMatch{
+					{
+						Tags: []dynatrace.METag{
+							{Key: "env", Value: "production"},
+							{Key: "service", Value: "api"},
+						},
+					},
+				},
+			},
+		},
+	}
+	result := GenerateMaintenance(windows)
+	if !strings.Contains(result, "filter") {
+		t.Error("expected filter block")
+	}
+	if !strings.Contains(result, "env:production") {
+		t.Error("expected tag env:production")
+	}
+	if !strings.Contains(result, "service:api") {
+		t.Error("expected tag service:api")
+	}
+	if !strings.Contains(result, "Monthly deploy window") {
+		t.Error("expected description in output")
+	}
+	if !strings.Contains(result, "DONT_DETECT_PROBLEMS") {
+		t.Error("expected suppression type in output")
+	}
+}
+
+func TestGenerateNotificationUnsupportedType(t *testing.T) {
+	notifications := []dynatrace.NotificationIntegration{
+		{
+			Name:   "Unknown Channel",
+			Type:   "XMATTERS",
+			Active: true,
+			Config: map[string]interface{}{},
+		},
+	}
+	result := GenerateNotifications(notifications)
+	if !strings.Contains(result, "Unsupported notification type: XMATTERS") {
+		t.Error("expected unsupported comment for unknown type")
+	}
+}
+
+func TestGenerateNotificationEmail(t *testing.T) {
+	notifications := []dynatrace.NotificationIntegration{
+		{
+			Name:   "Team Email",
+			Type:   "EMAIL",
+			Active: true,
+			Config: map[string]interface{}{"receivers": "team@example.com"},
+		},
+	}
+	result := GenerateNotifications(notifications)
+	if !strings.Contains(result, "dynatrace_email_notification") {
+		t.Error("expected dynatrace_email_notification resource type")
+	}
+	if !strings.Contains(result, "team@example.com") {
+		t.Error("expected email receivers in output")
+	}
+}
+
+func TestGenerateMetricEventsWithDescription(t *testing.T) {
+	events := []dynatrace.MetricEvent{
+		{
+			Summary:        "High Memory",
+			Description:    "Alert when memory exceeds threshold",
+			Enabled:        true,
+			EventType:      "CUSTOM_ALERT",
+			MetricSelector: "builtin:host.mem.usage",
+			MonitoringStrategy: dynatrace.MonitoringStrategy{
+				Type: "STATIC_THRESHOLD", AlertCondition: "ABOVE",
+				Threshold: 85, Samples: 5, ViolatingSamples: 3, DealertingSamples: 5,
+			},
+		},
+	}
+	result := GenerateMetricEvents(events)
+	if !strings.Contains(result, "Alert when memory exceeds threshold") {
+		t.Error("expected description in output")
+	}
+}
+
+func TestGenerateSLOsWithDescription(t *testing.T) {
+	slos := []dynatrace.SLO{
+		{
+			Name:             "API Latency",
+			Description:      "P99 latency under 500ms",
+			Enabled:          true,
+			MetricExpression: "(100)*(good)/(total)",
+			EvaluationType:   "AGGREGATE",
+			Target:           99.0,
+			Warning:          99.5,
+			Timeframe:        "-1w",
+		},
+	}
+	result := GenerateSLOs(slos)
+	if !strings.Contains(result, "P99 latency under 500ms") {
+		t.Error("expected description in output")
+	}
+	if !strings.Contains(result, "-1w") {
+		t.Error("expected timeframe in output")
+	}
+}
+
+func TestGenerateLogProcessingWithProcessor(t *testing.T) {
+	rules := []dynatrace.LogProcessingRule{
+		{
+			Name:      "Parse JSON",
+			Enabled:   true,
+			Query:     "log.source:app",
+			Processor: "PARSE(content, \"JSON\")",
+		},
+	}
+	result := GenerateLogProcessing(rules)
+	if !strings.Contains(result, "PARSE(content") {
+		t.Error("expected processor definition in output")
 	}
 }

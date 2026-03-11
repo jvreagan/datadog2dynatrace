@@ -197,6 +197,242 @@ func TestAutoImportUnknown(t *testing.T) {
 	}
 }
 
+// --- Notification import tests ---
+
+func TestImportNotificationsArray(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notifications.json", `[
+		{"id":1,"name":"Slack","type":"slack","config":{"url":"https://hooks.slack.com/test","channel":"#alerts"}},
+		{"id":2,"name":"PD","type":"pagerduty","config":{"service_name":"Prod","service_key":"key-1"}}
+	]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notifications) != 2 {
+		t.Errorf("got %d notifications, want 2", len(result.Notifications))
+	}
+}
+
+func TestImportNotificationsSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notifications.json", `{"id":1,"name":"Webhook","type":"webhook","config":{"url":"https://example.com"}}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notifications) != 1 {
+		t.Errorf("got %d notifications, want 1", len(result.Notifications))
+	}
+}
+
+// --- Single-object import tests for types that only tested array ---
+
+func TestImportLogPipelineSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "log_pipelines.json", `{"id":"p1","name":"Single Pipeline","is_enabled":true}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.LogPipelines) != 1 {
+		t.Errorf("got %d log pipelines, want 1", len(result.LogPipelines))
+	}
+}
+
+func TestImportDowntimeSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "downtimes.json", `{"id":1,"scope":["env:prod"],"message":"Deploy"}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("got %d downtimes, want 1", len(result.Downtimes))
+	}
+}
+
+func TestImportNotebookSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notebooks.json", `{"id":1,"name":"Single NB","cells":[]}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notebooks) != 1 {
+		t.Errorf("got %d notebooks, want 1", len(result.Notebooks))
+	}
+}
+
+func TestImportSLOSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "slos.json", `{"id":"s1","name":"Single SLO","type":"metric","thresholds":[{"timeframe":"7d","target":99.5}]}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.SLOs) != 1 {
+		t.Errorf("got %d SLOs, want 1", len(result.SLOs))
+	}
+}
+
+func TestImportSyntheticSingle(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "synthetics.json", `{"name":"Single Syn","public_id":"abc","type":"api"}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Synthetics) != 1 {
+		t.Errorf("got %d synthetics, want 1", len(result.Synthetics))
+	}
+}
+
+func TestImportSLOArrayFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "slos.json", `[{"id":"s1","name":"SLO1","type":"metric"},{"id":"s2","name":"SLO2","type":"metric"}]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.SLOs) != 2 {
+		t.Errorf("got %d SLOs, want 2", len(result.SLOs))
+	}
+}
+
+func TestImportSyntheticArrayFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "synthetics.json", `[{"name":"Syn1","type":"api"},{"name":"Syn2","type":"browser"}]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Synthetics) != 2 {
+		t.Errorf("got %d synthetics, want 2", len(result.Synthetics))
+	}
+}
+
+// --- Auto-import tests for uncovered detection paths ---
+
+func TestAutoImportLogPipeline(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "unknown.json", `{"name":"Auto Pipeline","processors":[{"type":"grok-parser"}],"is_enabled":true}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.LogPipelines) != 1 {
+		t.Errorf("got %d log pipelines, want 1", len(result.LogPipelines))
+	}
+}
+
+func TestAutoImportDowntimeMonitorID(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "unknown.json", `{"id":1,"scope":["env:prod"],"monitor_id":100}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("got %d downtimes, want 1", len(result.Downtimes))
+	}
+}
+
+func TestAutoImportDowntimeMonitorTags(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "unknown.json", `{"id":1,"scope":["env:staging"],"monitor_tags":["service:web"]}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("got %d downtimes, want 1", len(result.Downtimes))
+	}
+}
+
+func TestAutoImportNotebook(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "unknown.json", `{"name":"Auto NB","cells":[],"author":{"handle":"user@test.com"}}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notebooks) != 1 {
+		t.Errorf("got %d notebooks, want 1", len(result.Notebooks))
+	}
+}
+
+func TestAutoImportInvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "unknown.json", `not valid json at all`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should silently skip invalid JSON
+	total := len(result.Dashboards) + len(result.Monitors) + len(result.SLOs)
+	if total != 0 {
+		t.Errorf("expected 0 resources from invalid JSON, got %d", total)
+	}
+}
+
+// --- Error case tests ---
+
+func TestImportInvalidDirectory(t *testing.T) {
+	_, err := ImportFromDirectory("/nonexistent/path/that/does/not/exist")
+	if err == nil {
+		t.Error("expected error for nonexistent directory")
+	}
+}
+
+func TestImportBadJSON(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		content  string
+	}{
+		{"bad dashboard", "dashboards.json", `not json`},
+		{"bad monitors", "monitors.json", `not json`},
+		{"bad notifications", "notifications.json", `not json`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeTestFile(t, dir, tt.filename, tt.content)
+			_, err := ImportFromDirectory(dir)
+			if err == nil {
+				t.Errorf("expected error for bad JSON in %s", tt.filename)
+			}
+		})
+	}
+}
+
+func TestImportSkipsDirectories(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "subdir"), 0755)
+	writeTestFile(t, dir, "monitors.json", `[{"name":"Mon","type":"metric alert","query":"avg:cpu{*}"}]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Monitors) != 1 {
+		t.Errorf("got %d monitors, want 1", len(result.Monitors))
+	}
+}
+
+func TestImportSkipsNonJSONFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "readme.txt", "not a json file")
+	writeTestFile(t, dir, "monitors.json", `[{"name":"Mon","type":"metric alert","query":"avg:cpu{*}"}]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Monitors) != 1 {
+		t.Errorf("got %d monitors, want 1", len(result.Monitors))
+	}
+}
+
 func writeTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {

@@ -1,6 +1,7 @@
 package datadog
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -430,5 +431,257 @@ func TestGetError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("expected 500 in error, got %q", err.Error())
+	}
+}
+
+func TestNewClient(t *testing.T) {
+	t.Run("default site", func(t *testing.T) {
+		c := NewClient("api-key", "app-key", "")
+		if c.baseURL != "https://api.datadoghq.com" {
+			t.Errorf("default baseURL: got %q, want %q", c.baseURL, "https://api.datadoghq.com")
+		}
+		if c.apiKey != "api-key" {
+			t.Errorf("apiKey: got %q, want %q", c.apiKey, "api-key")
+		}
+		if c.appKey != "app-key" {
+			t.Errorf("appKey: got %q, want %q", c.appKey, "app-key")
+		}
+	})
+
+	t.Run("custom site", func(t *testing.T) {
+		c := NewClient("api-key", "app-key", "datadoghq.eu")
+		if c.baseURL != "https://api.datadoghq.eu" {
+			t.Errorf("custom baseURL: got %q, want %q", c.baseURL, "https://api.datadoghq.eu")
+		}
+	})
+}
+
+func TestGetMonitor(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/monitor/42" {
+			w.Write([]byte(`{"id":42,"name":"Disk Alert","type":"metric alert","query":"avg:system.disk.used{*} > 80"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	m, err := c.GetMonitor(42)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.ID != 42 {
+		t.Errorf("monitor ID: got %d, want 42", m.ID)
+	}
+	if m.Name != "Disk Alert" {
+		t.Errorf("monitor name: got %q, want %q", m.Name, "Disk Alert")
+	}
+}
+
+func TestGetMonitorNotFound(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"errors":["Monitor not found"]}`))
+	})
+
+	_, err := c.GetMonitor(999)
+	if err == nil {
+		t.Fatal("expected error for missing monitor")
+	}
+}
+
+func TestGetMetrics(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/api/v1/metrics":
+			w.Write([]byte(`{"metrics":["system.cpu.user","system.mem.used"]}`))
+		case r.URL.Path == "/api/v1/metrics/system.cpu.user":
+			w.Write([]byte(`{"type":"gauge","description":"CPU user","unit":"percent"}`))
+		case r.URL.Path == "/api/v1/metrics/system.mem.used":
+			w.Write([]byte(`{"type":"gauge","description":"Memory used","unit":"byte"}`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	metrics, err := c.GetMetrics("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(metrics) != 2 {
+		t.Fatalf("expected 2 metrics, got %d", len(metrics))
+	}
+	if metrics[0].Metric != "system.cpu.user" {
+		t.Errorf("metric name: got %q, want %q", metrics[0].Metric, "system.cpu.user")
+	}
+	if metrics[0].Unit != "percent" {
+		t.Errorf("metric unit: got %q, want %q", metrics[0].Unit, "percent")
+	}
+}
+
+func TestGetMetricsWithFailingMetadata(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/metrics" {
+			w.Write([]byte(`{"metrics":["custom.metric"]}`))
+			return
+		}
+		// Metadata endpoint fails
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	metrics, err := c.GetMetrics("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should return empty since metadata failed (non-fatal skip)
+	if len(metrics) != 0 {
+		t.Errorf("expected 0 metrics (metadata failed), got %d", len(metrics))
+	}
+}
+
+func TestGetMetricMetadata(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/metrics/system.cpu.user" {
+			w.Write([]byte(`{"type":"gauge","description":"CPU user time","unit":"percent","per_unit":"second"}`))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	m, err := c.GetMetricMetadata("system.cpu.user")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if m.Type != "gauge" {
+		t.Errorf("type: got %q, want %q", m.Type, "gauge")
+	}
+	if m.Description != "CPU user time" {
+		t.Errorf("description: got %q", m.Description)
+	}
+	if m.Unit != "percent" {
+		t.Errorf("unit: got %q, want %q", m.Unit, "percent")
+	}
+}
+
+func TestGetPaginated(t *testing.T) {
+	callCount := 0
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		page := r.URL.Query().Get("page[number]")
+		switch page {
+		case "0":
+			w.Write([]byte(`[{"id":1},{"id":2}]`))
+		case "1":
+			w.Write([]byte(`[{"id":3}]`))
+		default:
+			w.Write([]byte(`[]`))
+		}
+	})
+
+	var allIDs []int
+	err := c.getPaginated("/api/v1/test", 2, func(data []byte) (int, error) {
+		var items []struct{ ID int }
+		if err := json.Unmarshal(data, &items); err != nil {
+			return 0, err
+		}
+		for _, item := range items {
+			allIDs = append(allIDs, item.ID)
+		}
+		return len(items), nil
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(allIDs) != 3 {
+		t.Errorf("expected 3 items, got %d", len(allIDs))
+	}
+	if callCount != 2 {
+		t.Errorf("expected 2 API calls, got %d", callCount)
+	}
+}
+
+func TestGetPaginatedError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`error`))
+	})
+
+	err := c.getPaginated("/api/v1/test", 10, func(data []byte) (int, error) {
+		return 0, nil
+	})
+	if err == nil {
+		t.Fatal("expected error from paginated request")
+	}
+}
+
+func TestGetAllEndpointErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   func(c *Client) error
+	}{
+		{"GetDashboards", func(c *Client) error { _, err := c.GetDashboards(); return err }},
+		{"GetMonitors", func(c *Client) error { _, err := c.GetMonitors(); return err }},
+		{"GetSLOs", func(c *Client) error { _, err := c.GetSLOs(); return err }},
+		{"GetSynthetics", func(c *Client) error { _, err := c.GetSynthetics(); return err }},
+		{"GetLogPipelines", func(c *Client) error { _, err := c.GetLogPipelines(); return err }},
+		{"GetDowntimes", func(c *Client) error { _, err := c.GetDowntimes(); return err }},
+		{"GetNotebooks", func(c *Client) error { _, err := c.GetNotebooks(); return err }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusInternalServerError)
+				w.Write([]byte("error"))
+			})
+			if err := tt.fn(c); err == nil {
+				t.Errorf("%s: expected error on 500 response", tt.name)
+			}
+		})
+	}
+}
+
+func TestGetAllEndpointsBadJSON(t *testing.T) {
+	tests := []struct {
+		name string
+		fn   func(c *Client) error
+	}{
+		{"GetMonitors", func(c *Client) error { _, err := c.GetMonitors(); return err }},
+		{"GetSLOs", func(c *Client) error { _, err := c.GetSLOs(); return err }},
+		{"GetSynthetics", func(c *Client) error { _, err := c.GetSynthetics(); return err }},
+		{"GetLogPipelines", func(c *Client) error { _, err := c.GetLogPipelines(); return err }},
+		{"GetDowntimes", func(c *Client) error { _, err := c.GetDowntimes(); return err }},
+		{"GetNotebooks", func(c *Client) error { _, err := c.GetNotebooks(); return err }},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`not valid json{{{`))
+			})
+			if err := tt.fn(c); err == nil {
+				t.Errorf("%s: expected error on bad JSON", tt.name)
+			}
+		})
+	}
+}
+
+func TestGetDashboardBadJSON(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`not valid json`))
+	})
+	_, err := c.GetDashboard("abc")
+	if err == nil {
+		t.Error("expected error on bad JSON")
+	}
+}
+
+func TestGetDashboardListBadJSON(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`not valid json`))
+	})
+	_, err := c.GetDashboardList()
+	if err == nil {
+		t.Error("expected error on bad JSON")
 	}
 }
