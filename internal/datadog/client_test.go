@@ -248,24 +248,91 @@ func TestGetNotebooks(t *testing.T) {
 }
 
 func TestGetNotificationChannels(t *testing.T) {
-	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/v1/integration/webhooks") {
-			w.Write([]byte(`[{"name":"Slack Alert","url":"https://hooks.slack.com/test"}]`))
-			return
+	t.Run("all endpoints", func(t *testing.T) {
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case strings.HasPrefix(r.URL.Path, "/api/v1/integration/webhooks"):
+				w.Write([]byte(`[{"name":"Alert Hook","url":"https://hooks.example.com/alert","payload":"{\"msg\":\"alert\"}"}]`))
+			case r.URL.Path == "/api/v1/integration/slack/configuration/accounts":
+				w.Write([]byte(`[{"name":"engineering"}]`))
+			case r.URL.Path == "/api/v1/integration/slack/configuration/channels/engineering":
+				w.Write([]byte(`[{"channel_name":"#alerts","webhook_url":"https://hooks.slack.com/services/T00/B00/xxx"}]`))
+			case strings.HasPrefix(r.URL.Path, "/api/v1/integration/pagerduty"):
+				w.Write([]byte(`[{"service_name":"Prod Oncall","service_key":"pd-key-123"}]`))
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		})
+
+		channels, err := c.GetNotificationChannels()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
 		}
-		w.WriteHeader(http.StatusNotFound)
+		if len(channels) != 3 {
+			t.Fatalf("expected 3 channels, got %d", len(channels))
+		}
+
+		// Webhook
+		if channels[0].Name != "Alert Hook" {
+			t.Errorf("webhook name: got %q, want %q", channels[0].Name, "Alert Hook")
+		}
+		if channels[0].Type != "webhook" {
+			t.Errorf("webhook type: got %q, want %q", channels[0].Type, "webhook")
+		}
+
+		// Slack (with channel-level data)
+		if channels[1].Type != "slack" {
+			t.Errorf("slack type: got %q, want %q", channels[1].Type, "slack")
+		}
+		if channels[1].Config["url"] != "https://hooks.slack.com/services/T00/B00/xxx" {
+			t.Errorf("slack url: got %v", channels[1].Config["url"])
+		}
+		if channels[1].Config["channel"] != "#alerts" {
+			t.Errorf("slack channel: got %v", channels[1].Config["channel"])
+		}
+
+		// PagerDuty
+		if channels[2].Name != "Prod Oncall" {
+			t.Errorf("pagerduty name: got %q, want %q", channels[2].Name, "Prod Oncall")
+		}
+		if channels[2].Config["service_key"] != "pd-key-123" {
+			t.Errorf("pagerduty service_key: got %v", channels[2].Config["service_key"])
+		}
+		if channels[2].Config["service_name"] != "Prod Oncall" {
+			t.Errorf("pagerduty service_name: got %v", channels[2].Config["service_name"])
+		}
 	})
 
-	channels, err := c.GetNotificationChannels()
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(channels) != 1 {
-		t.Fatalf("expected 1 channel, got %d", len(channels))
-	}
-	if channels[0].Name != "Slack Alert" {
-		t.Errorf("expected 'Slack Alert', got %q", channels[0].Name)
-	}
+	t.Run("slack channel endpoint fallback", func(t *testing.T) {
+		c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+			switch {
+			case r.URL.Path == "/api/v1/integration/slack/configuration/accounts":
+				w.Write([]byte(`[{"name":"legacy-workspace"}]`))
+			case strings.HasPrefix(r.URL.Path, "/api/v1/integration/slack/configuration/channels/"):
+				w.WriteHeader(http.StatusForbidden)
+			default:
+				w.WriteHeader(http.StatusNotFound)
+			}
+		})
+
+		channels, err := c.GetNotificationChannels()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(channels) != 1 {
+			t.Fatalf("expected 1 channel, got %d", len(channels))
+		}
+		if channels[0].Name != "legacy-workspace" {
+			t.Errorf("expected fallback name %q, got %q", "legacy-workspace", channels[0].Name)
+		}
+		if channels[0].Config["account"] != "legacy-workspace" {
+			t.Errorf("expected account in config, got %v", channels[0].Config["account"])
+		}
+		// Should NOT have url/channel since channel endpoint failed
+		if _, ok := channels[0].Config["url"]; ok {
+			t.Error("expected no url in fallback config")
+		}
+	})
 }
 
 func TestExtractAllSuccess(t *testing.T) {
