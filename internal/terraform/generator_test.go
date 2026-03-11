@@ -175,6 +175,12 @@ func TestGenerateNotifications(t *testing.T) {
 			Active: true,
 			Config: map[string]interface{}{"url": "https://example.com/hook"},
 		},
+		{
+			Name:   "PD Oncall",
+			Type:   "PAGER_DUTY",
+			Active: true,
+			Config: map[string]interface{}{"account": "Production Oncall", "integrationKey": "pd-key-123"},
+		},
 	}
 	result := GenerateNotifications(notifications)
 	if !strings.Contains(result, "dynatrace_slack_notification") {
@@ -182,6 +188,18 @@ func TestGenerateNotifications(t *testing.T) {
 	}
 	if !strings.Contains(result, "dynatrace_webhook_notification") {
 		t.Error("expected dynatrace_webhook_notification resource type")
+	}
+	if !strings.Contains(result, "dynatrace_pagerduty_notification") {
+		t.Error("expected dynatrace_pagerduty_notification resource type")
+	}
+	if !strings.Contains(result, "integration_key") {
+		t.Error("expected integration_key in PagerDuty resource")
+	}
+	if !strings.Contains(result, "pd-key-123") {
+		t.Error("expected PagerDuty integration key value in output")
+	}
+	if !strings.Contains(result, "Production Oncall") {
+		t.Error("expected PagerDuty account name in output")
 	}
 }
 

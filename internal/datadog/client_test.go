@@ -354,6 +354,14 @@ func TestExtractAllSuccess(t *testing.T) {
 			w.Write([]byte(`[{"id":1,"message":"Down","scope":["*"]}]`))
 		case strings.HasPrefix(r.URL.Path, "/api/v1/notebooks"):
 			w.Write([]byte(`{"data":[{"id":1,"attributes":{"name":"NB","cells":[]}}]}`))
+		case strings.HasPrefix(r.URL.Path, "/api/v1/integration/webhooks"):
+			w.Write([]byte(`[{"name":"Hook","url":"https://example.com/hook"}]`))
+		case r.URL.Path == "/api/v1/integration/slack/configuration/accounts":
+			w.Write([]byte(`[{"name":"team"}]`))
+		case r.URL.Path == "/api/v1/integration/slack/configuration/channels/team":
+			w.Write([]byte(`[{"channel_name":"#alerts","webhook_url":"https://hooks.slack.com/test"}]`))
+		case strings.HasPrefix(r.URL.Path, "/api/v1/integration/pagerduty"):
+			w.Write([]byte(`[{"service_name":"PD","service_key":"key-1"}]`))
 		default:
 			w.Write([]byte(`[]`))
 		}
@@ -371,6 +379,9 @@ func TestExtractAllSuccess(t *testing.T) {
 	}
 	if len(result.SLOs) != 1 {
 		t.Errorf("expected 1 SLO, got %d", len(result.SLOs))
+	}
+	if len(result.Notifications) != 3 {
+		t.Errorf("expected 3 notifications (webhook+slack+pagerduty), got %d", len(result.Notifications))
 	}
 }
 
