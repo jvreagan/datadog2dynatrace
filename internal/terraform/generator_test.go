@@ -370,6 +370,127 @@ func TestGenerateAllEmptyResult(t *testing.T) {
 	}
 }
 
+func TestGenerateAllProviderWriteError(t *testing.T) {
+	dir := t.TempDir()
+	// Create provider.tf as a directory to cause write failure
+	os.MkdirAll(filepath.Join(dir, "provider.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing provider.tf to a directory")
+	}
+}
+
+func TestGenerateAllDashboardWriteError(t *testing.T) {
+	dir := t.TempDir()
+	// Create dashboards.tf as a directory to cause write failure
+	os.MkdirAll(filepath.Join(dir, "dashboards.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		Dashboards: []dynatrace.Dashboard{
+			{DashboardMetadata: dynatrace.DashboardMetadata{Name: "Test"}},
+		},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing dashboards.tf to a directory")
+	}
+}
+
+func TestGenerateAllNotebooksWriteError(t *testing.T) {
+	dir := t.TempDir()
+	// Create notebooks.tf as a directory to cause write failure
+	os.MkdirAll(filepath.Join(dir, "notebooks.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		Notebooks: []dynatrace.DynatraceNotebook{
+			{Name: "NB", Sections: []dynatrace.NotebookSection{{Type: "markdown", Content: "# Test"}}},
+		},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing notebooks.tf to a directory")
+	}
+}
+
+func TestGenerateAllMetricEventsWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "metric_events.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		MetricEvents: []dynatrace.MetricEvent{
+			{Summary: "CPU", Enabled: true, EventType: "CUSTOM_ALERT", MetricSelector: "m",
+				MonitoringStrategy: dynatrace.MonitoringStrategy{Type: "STATIC_THRESHOLD", AlertCondition: "ABOVE", Threshold: 90, Samples: 5, ViolatingSamples: 3, DealertingSamples: 5}},
+		},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing metric_events.tf")
+	}
+}
+
+func TestGenerateAllSLOsWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "slos.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		SLOs: []dynatrace.SLO{{Name: "A", Enabled: true, MetricExpression: "x", EvaluationType: "AGGREGATE", Target: 99, Timeframe: "-1M"}},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing slos.tf")
+	}
+}
+
+func TestGenerateAllSyntheticsWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "synthetics.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		Synthetics: []dynatrace.SyntheticMonitor{{Name: "H", Type: "HTTP", Enabled: true}},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing synthetics.tf")
+	}
+}
+
+func TestGenerateAllLogProcessingWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "log_processing.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		LogRules: []dynatrace.LogProcessingRule{{Name: "P", Enabled: true, Query: "q"}},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing log_processing.tf")
+	}
+}
+
+func TestGenerateAllMaintenanceWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "maintenance.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		Maintenance: []dynatrace.MaintenanceWindow{
+			{Name: "M", Type: "PLANNED", Suppression: "DETECT_PROBLEMS_DONT_ALERT",
+				Schedule: dynatrace.MaintenanceSchedule{RecurrenceType: "ONCE", Start: "2024-01-01 00:00", End: "2024-01-01 02:00", ZoneID: "UTC"}},
+		},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing maintenance.tf")
+	}
+}
+
+func TestGenerateAllNotificationsWriteError(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "notifications.tf"), 0755)
+	g := NewGenerator(dir)
+	result := &dynatrace.ConversionResult{
+		Notifications: []dynatrace.NotificationIntegration{
+			{Name: "S", Type: "SLACK", Active: true, Config: map[string]interface{}{"url": "http://x"}},
+		},
+	}
+	if err := g.GenerateAll(result); err == nil {
+		t.Error("expected error writing notifications.tf")
+	}
+}
+
 func TestGenerateAllBadDirectory(t *testing.T) {
 	g := NewGenerator("/proc/nonexistent/impossible/path")
 	result := &dynatrace.ConversionResult{}

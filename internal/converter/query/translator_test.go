@@ -400,6 +400,79 @@ func TestToDQLFull(t *testing.T) {
 	}
 }
 
+func TestToDQLQuotedStrings(t *testing.T) {
+	result := ToDQL(`source:nginx "error message"`, "log")
+	if !strings.Contains(result, "fetch logs") {
+		t.Errorf("expected fetch logs, got:\n%s", result)
+	}
+	if !strings.Contains(result, "\"error message\"") {
+		t.Errorf("expected quoted token preserved, got:\n%s", result)
+	}
+}
+
+func TestToDQLFullAggregations(t *testing.T) {
+	tests := []struct {
+		agg      string
+		expected string
+	}{
+		{"min", "min"},
+		{"max", "max"},
+		{"cardinality", "countDistinct"},
+		{"unknown_agg", "unknown_agg"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.agg, func(t *testing.T) {
+			result := ToDQLFull("*", "log", &DQLCompute{Aggregation: tt.agg, Facet: "@field"}, nil)
+			if !strings.Contains(result, tt.expected+"(field)") {
+				t.Errorf("expected %s(field), got:\n%s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestTranslateFilterKeyAdditional(t *testing.T) {
+	tests := []struct {
+		ddKey string
+		dtKey string
+	}{
+		{"zone", "cloud.zone"},
+		{"availability-zone", "cloud.zone"},
+		{"kube_pod_name", "k8s.pod.name"},
+		{"kube_namespace", "k8s.namespace.name"},
+		{"kube_cluster_name", "k8s.cluster.name"},
+		{"container_name", "container.name"},
+		{"device", "dt.entity.disk"},
+		{"interface", "dt.entity.network_interface"},
+		{"image", "container.image.name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ddKey, func(t *testing.T) {
+			pq := &ParsedQuery{
+				Metric:  "my.metric",
+				Filters: []FilterTerm{{Key: tt.ddKey, Value: "test", Operator: "AND"}},
+			}
+			result := ToMetricSelector(pq)
+			if !strings.Contains(result, tt.dtKey) {
+				t.Errorf("expected %q in result for key %q, got:\n%s", tt.dtKey, tt.ddKey, result)
+			}
+		})
+	}
+}
+
+func TestToDQLWithANDAndOR(t *testing.T) {
+	result := ToDQL("source:nginx AND status:error", "log")
+	if !strings.Contains(result, "and") {
+		t.Errorf("expected 'and' in result, got:\n%s", result)
+	}
+}
+
+func TestToDQLSingleQuotedToken(t *testing.T) {
+	result := ToDQL("source:'my service'", "log")
+	if !strings.Contains(result, "fetch logs") {
+		t.Errorf("expected fetch logs, got:\n%s", result)
+	}
+}
+
 func TestEndToEndQueryTranslation(t *testing.T) {
 	// Full pipeline: raw DD query → parse → translate → DT metric selector
 	tests := []struct {

@@ -433,6 +433,214 @@ func TestImportSkipsNonJSONFiles(t *testing.T) {
 	}
 }
 
+func TestImportTerraformJSON(t *testing.T) {
+	dir := t.TempDir()
+	tfJSON := `{
+		"resource": {
+			"datadog_dashboard": {
+				"main": {"title":"TF Dashboard","widgets":[]}
+			},
+			"datadog_monitor": {
+				"cpu": {"name":"CPU Alert","type":"metric alert","query":"avg:system.cpu{*}"}
+			},
+			"datadog_service_level_objective": {
+				"slo1": {"name":"API SLO","type":"metric"}
+			},
+			"datadog_synthetics_test": {
+				"health": {"name":"Health Check","type":"api","status":"live"}
+			},
+			"datadog_logs_custom_pipeline": {
+				"pipe1": {"name":"JSON Pipeline","is_enabled":true}
+			},
+			"datadog_downtime": {
+				"deploy": {"id":1,"message":"Deploy","scope":["*"]}
+			},
+			"datadog_notebook": {
+				"nb1": {"name":"My Notebook"}
+			}
+		}
+	}`
+	writeTestFile(t, dir, "main.tf.json", tfJSON)
+
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Dashboards) != 1 {
+		t.Errorf("expected 1 dashboard, got %d", len(result.Dashboards))
+	}
+	if len(result.Monitors) != 1 {
+		t.Errorf("expected 1 monitor, got %d", len(result.Monitors))
+	}
+	if len(result.SLOs) != 1 {
+		t.Errorf("expected 1 SLO, got %d", len(result.SLOs))
+	}
+	if len(result.Synthetics) != 1 {
+		t.Errorf("expected 1 synthetic, got %d", len(result.Synthetics))
+	}
+	if len(result.LogPipelines) != 1 {
+		t.Errorf("expected 1 log pipeline, got %d", len(result.LogPipelines))
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("expected 1 downtime, got %d", len(result.Downtimes))
+	}
+	if len(result.Notebooks) != 1 {
+		t.Errorf("expected 1 notebook, got %d", len(result.Notebooks))
+	}
+}
+
+func TestImportTerraformJSONBadJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "bad.tf.json", `{not valid}`)
+	_, err := ImportFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for bad tf.json")
+	}
+}
+
+func TestImportTerraformHCL(t *testing.T) {
+	dir := t.TempDir()
+	hcl := `
+resource "datadog_dashboard" "main" {
+  title = "My Dashboard"
+  widget {
+    timeseries_definition {}
+  }
+}
+
+resource "datadog_monitor" "cpu" {
+  name  = "CPU Alert"
+  type  = "metric alert"
+  query = "avg:system.cpu{*} > 90"
+}
+
+resource "datadog_service_level_objective" "slo" {
+  name = "API SLO"
+}
+
+resource "datadog_synthetics_test" "health" {
+  name = "Health Check"
+  type = "api"
+}
+
+resource "datadog_logs_custom_pipeline" "json" {
+  name = "JSON Parser"
+}
+
+resource "datadog_downtime" "deploy" {
+  message = "Deploy window"
+}
+`
+	writeTestFile(t, dir, "main.tf", hcl)
+
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Dashboards) != 1 {
+		t.Errorf("expected 1 dashboard, got %d", len(result.Dashboards))
+	}
+	if len(result.Monitors) != 1 {
+		t.Errorf("expected 1 monitor, got %d", len(result.Monitors))
+	}
+	if len(result.SLOs) != 1 {
+		t.Errorf("expected 1 SLO, got %d", len(result.SLOs))
+	}
+	if len(result.Synthetics) != 1 {
+		t.Errorf("expected 1 synthetic, got %d", len(result.Synthetics))
+	}
+	if len(result.LogPipelines) != 1 {
+		t.Errorf("expected 1 log pipeline, got %d", len(result.LogPipelines))
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("expected 1 downtime, got %d", len(result.Downtimes))
+	}
+}
+
+func TestImportDashboardsJSONBadArray(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "dashboards.json", `[{"title":"Good"},{"bad json}]`)
+	_, err := ImportFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for bad JSON array")
+	}
+}
+
+func TestImportNotificationsJSON(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notifications.json", `[{"name":"Slack","type":"slack","config":{"url":"https://hooks.slack.com"}}]`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notifications) != 1 {
+		t.Errorf("expected 1 notification, got %d", len(result.Notifications))
+	}
+}
+
+func TestImportBadLogPipeline(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "log_pipelines.json", `{bad json`)
+	_, err := ImportFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for bad log pipeline JSON")
+	}
+}
+
+func TestImportBadDowntime(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "downtimes.json", `{bad json`)
+	_, err := ImportFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for bad downtime JSON")
+	}
+}
+
+func TestImportBadNotebook(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notebooks.json", `{bad json`)
+	_, err := ImportFromDirectory(dir)
+	if err == nil {
+		t.Fatal("expected error for bad notebook JSON")
+	}
+}
+
+func TestImportSingleLogPipeline(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "log_pipelines.json", `{"name":"My Pipeline","is_enabled":true}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.LogPipelines) != 1 {
+		t.Errorf("expected 1 log pipeline, got %d", len(result.LogPipelines))
+	}
+}
+
+func TestImportSingleDowntime(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "downtimes.json", `{"message":"Deploy window","scope":["env:prod"]}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Downtimes) != 1 {
+		t.Errorf("expected 1 downtime, got %d", len(result.Downtimes))
+	}
+}
+
+func TestImportSingleNotebook(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "notebooks.json", `{"name":"Investigation","cells":[]}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Notebooks) != 1 {
+		t.Errorf("expected 1 notebook, got %d", len(result.Notebooks))
+	}
+}
+
 func writeTestFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0644); err != nil {

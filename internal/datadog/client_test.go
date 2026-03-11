@@ -2,6 +2,7 @@ package datadog
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -683,5 +684,111 @@ func TestGetDashboardListBadJSON(t *testing.T) {
 	_, err := c.GetDashboardList()
 	if err == nil {
 		t.Error("expected error on bad JSON")
+	}
+}
+
+func TestGetDashboardError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error"))
+	})
+	_, err := c.GetDashboard("abc")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetMetricsError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error"))
+	})
+	_, err := c.GetMetrics("")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetMetricsBadJSON(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`not json`))
+	})
+	_, err := c.GetMetrics("")
+	if err == nil {
+		t.Fatal("expected error on bad JSON")
+	}
+}
+
+func TestGetMetricMetadataError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	})
+	_, err := c.GetMetricMetadata("bad.metric")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetMetricMetadataBadJSON(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{bad`))
+	})
+	_, err := c.GetMetricMetadata("some.metric")
+	if err == nil {
+		t.Fatal("expected error on bad JSON")
+	}
+}
+
+func TestGetMonitorError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+	_, err := c.GetMonitor(1)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestGetMonitorBadJSON(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{bad json`))
+	})
+	_, err := c.GetMonitor(1)
+	if err == nil {
+		t.Fatal("expected error on bad JSON")
+	}
+}
+
+func TestGetPaginatedExtractError(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`[{"id":1}]`))
+	})
+	err := c.getPaginated("/api/v1/test", 10, func(data []byte) (int, error) {
+		return 0, fmt.Errorf("extraction error")
+	})
+	if err == nil {
+		t.Fatal("expected error from extractItems")
+	}
+	if !strings.Contains(err.Error(), "extraction error") {
+		t.Errorf("expected extraction error message, got %v", err)
+	}
+}
+
+func TestExtractAllAllFailures(t *testing.T) {
+	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("error"))
+	})
+	result, err := c.ExtractAll()
+	if err == nil {
+		t.Fatal("expected error when all endpoints fail")
+	}
+	// Result should still be returned (non-nil) with empty slices
+	if result == nil {
+		t.Fatal("expected non-nil result even on full failure")
+	}
+	if len(result.Dashboards) != 0 {
+		t.Errorf("expected 0 dashboards, got %d", len(result.Dashboards))
 	}
 }

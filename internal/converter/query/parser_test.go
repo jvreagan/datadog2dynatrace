@@ -310,6 +310,28 @@ func TestParse(t *testing.T) {
 	}
 }
 
+func TestParseLogQuery(t *testing.T) {
+	input := "source:nginx status:error"
+	got := ParseLogQuery(input)
+	if got != input {
+		t.Errorf("ParseLogQuery(%q) = %q, want %q", input, got, input)
+	}
+}
+
+func TestFindMatchingBraceUnclosed(t *testing.T) {
+	got := findMatchingBrace("{abc", 0)
+	if got != -1 {
+		t.Errorf("findMatchingBrace unclosed = %d, want -1", got)
+	}
+}
+
+func TestParseUnclosedBrace(t *testing.T) {
+	_, err := Parse("avg:system.cpu.user{host:web01")
+	if err == nil {
+		t.Error("expected error for unclosed brace")
+	}
+}
+
 func TestParseORFilters(t *testing.T) {
 	tests := []struct {
 		name        string
