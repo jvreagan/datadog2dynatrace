@@ -252,6 +252,254 @@ func TestJoinResourceNamesTruncation(t *testing.T) {
 	}
 }
 
+func TestReportPushErrors(t *testing.T) {
+	r := New()
+	r.AddPushErrors([]error{
+		errString("dashboard push failed"),
+		errString("SLO push timeout"),
+	})
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "Push Errors") {
+		t.Error("expected 'Push Errors' section")
+	}
+	if !strings.Contains(content, "2 push errors") {
+		t.Error("expected push error count")
+	}
+	if !strings.Contains(content, "dashboard push failed") {
+		t.Error("expected push error message")
+	}
+	if !strings.Contains(content, "SLO push timeout") {
+		t.Error("expected second push error message")
+	}
+}
+
+func TestReportPushErrorsEmpty(t *testing.T) {
+	r := New()
+	r.AddPushErrors(nil)
+	r.AddPushErrors([]error{})
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if strings.Contains(content, "Push Errors") {
+		t.Error("should not include Push Errors section when empty")
+	}
+}
+
+func TestReportConversionErrorsEmpty(t *testing.T) {
+	r := New()
+	r.AddConversionErrors(nil)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "Conversion Errors") {
+		t.Error("should not include Conversion Errors section when empty")
+	}
+}
+
+func TestReportValidationResults(t *testing.T) {
+	r := New()
+	r.AddValidationResults(&dynatrace.ValidationResult{
+		Selectors: []dynatrace.SelectorValidation{
+			{Selector: "builtin:host.cpu.usage", Sources: []string{"monitor: High CPU"}, Valid: true},
+			{Selector: "bad.metric", Sources: []string{"dashboard tile: Error"}, Valid: false, Error: "unknown metric"},
+			{Selector: "builtin:host.availability", Sources: []string{"monitor: Composite"}, Skipped: true},
+		},
+		Summary: dynatrace.ValidationSummary{Total: 3, Valid: 1, Invalid: 1, Skipped: 1},
+	})
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "Metric Selector Validation") {
+		t.Error("expected 'Metric Selector Validation' section")
+	}
+	if !strings.Contains(content, "3") {
+		t.Error("expected total count")
+	}
+	if !strings.Contains(content, "builtin:host.cpu.usage") {
+		t.Error("expected valid selector")
+	}
+	if !strings.Contains(content, "bad.metric") {
+		t.Error("expected invalid selector")
+	}
+	if !strings.Contains(content, "unknown metric") {
+		t.Error("expected error message")
+	}
+	if !strings.Contains(content, "Skipped") {
+		t.Error("expected skipped status")
+	}
+}
+
+func TestReportValidationResultsNil(t *testing.T) {
+	r := New()
+	r.AddValidationResults(nil)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "Metric Selector Validation") {
+		t.Error("should not include validation section when nil")
+	}
+}
+
+func TestReportValidationResultsPipeEscaping(t *testing.T) {
+	r := New()
+	r.AddValidationResults(&dynatrace.ValidationResult{
+		Selectors: []dynatrace.SelectorValidation{
+			{Selector: "bad.metric", Sources: []string{"src"}, Valid: false, Error: "error|with|pipes"},
+		},
+		Summary: dynatrace.ValidationSummary{Total: 1, Invalid: 1},
+	})
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if strings.Contains(content, "error|with") {
+		t.Error("expected pipes to be escaped in markdown table")
+	}
+	if !strings.Contains(content, `error\|with\|pipes`) {
+		t.Error("expected escaped pipes")
+	}
+}
+
+func TestReportDashboardDetailsEmpty(t *testing.T) {
+	r := New()
+	r.AddDashboardDetails(nil)
+	r.AddDashboardDetails([]dynatrace.Dashboard{})
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "Dashboard Details") {
+		t.Error("should not include Dashboard Details when empty")
+	}
+}
+
+func TestReportDQLQueryNotesGrail(t *testing.T) {
+	r := New()
+	dashboards := []dynatrace.Dashboard{
+		{
+			DashboardMetadata: dynatrace.DashboardMetadata{Name: "Grail Dashboard"},
+			Tiles: []dynatrace.Tile{
+				{
+					TileType: "DATA_EXPLORER",
+					Name:     "DQL Tile",
+					Queries: []dynatrace.DashboardQuery{
+						{DQL: "fetch logs | filter status == \"ERROR\""},
+					},
+				},
+			},
+		},
+	}
+	r.AddDQLQueryNotes(dashboards)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	content := string(data)
+
+	if !strings.Contains(content, "native DQL queries") {
+		t.Error("expected Grail DQL note")
+	}
+	if !strings.Contains(content, "Grail Dashboard") {
+		t.Error("expected dashboard name in Grail note")
+	}
+}
+
+func TestReportDQLQueryNotesNoNotes(t *testing.T) {
+	r := New()
+	dashboards := []dynatrace.Dashboard{
+		{
+			DashboardMetadata: dynatrace.DashboardMetadata{Name: "Simple"},
+			Tiles: []dynatrace.Tile{
+				{TileType: "DATA_EXPLORER", Name: "CPU"},
+			},
+		},
+	}
+	r.AddDQLQueryNotes(dashboards)
+
+	r.SetSource("api", "")
+	r.SetTarget("api", "")
+	path := filepath.Join(t.TempDir(), "report.md")
+	if err := r.WriteToFile(path); err != nil {
+		t.Fatalf("WriteToFile error: %v", err)
+	}
+
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), "DQL Query Notes") {
+		t.Error("should not include DQL Query Notes when no DQL found")
+	}
+}
+
+func TestJoinResourceNames(t *testing.T) {
+	if got := joinResourceNames(nil); got != "" {
+		t.Errorf("expected empty, got %q", got)
+	}
+	if got := joinResourceNames([]string{"a"}); got != "a" {
+		t.Errorf("expected 'a', got %q", got)
+	}
+	if got := joinResourceNames([]string{"a", "b", "c", "d", "e"}); got != "a, b, c, d, e" {
+		t.Errorf("expected all 5 joined, got %q", got)
+	}
+	got := joinResourceNames([]string{"a", "b", "c", "d", "e", "f"})
+	if !strings.Contains(got, "+1 more") {
+		t.Errorf("expected truncation, got %q", got)
+	}
+}
+
 type errString string
 
 func (e errString) Error() string { return string(e) }

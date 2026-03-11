@@ -246,3 +246,152 @@ func TestPostBodyRetried(t *testing.T) {
 		t.Errorf("expected 2 attempts, got %d", got)
 	}
 }
+
+func TestRetryAfterInvalidHeader(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			w.Header().Set("Retry-After", "not-a-number-or-date")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	limiter := New(ts.Client(), fastConfig())
+	req, _ := http.NewRequest("GET", ts.URL+"/test", nil)
+	resp, err := limiter.Do(req, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Should fall back to exponential backoff and succeed
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&attempts); got != 2 {
+		t.Errorf("expected 2 attempts, got %d", got)
+	}
+}
+
+func TestRetryAfterHTTPDate(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			// Set Retry-After to an HTTP-date 2 seconds in the future
+			futureTime := time.Now().Add(2 * time.Second)
+			w.Header().Set("Retry-After", futureTime.UTC().Format(http.TimeFormat))
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	limiter := New(ts.Client(), fastConfig())
+	req, _ := http.NewRequest("GET", ts.URL+"/test", nil)
+
+	start := time.Now()
+	resp, err := limiter.Do(req, nil)
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// HTTP-date header was parsed, so wait should be non-trivial
+	// (at least 500ms, accounting for clock resolution and processing time)
+	if elapsed < 500*time.Millisecond {
+		t.Errorf("expected to wait for HTTP-date Retry-After, but only waited %v", elapsed)
+	}
+}
+
+func TestRetryAfterPastDate(t *testing.T) {
+	var attempts int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&attempts, 1)
+		if n == 1 {
+			// Set Retry-After to a past date — should fall back to backoff
+			pastTime := time.Now().Add(-10 * time.Second)
+			w.Header().Set("Retry-After", pastTime.UTC().Format(http.TimeFormat))
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	limiter := New(ts.Client(), fastConfig())
+	req, _ := http.NewRequest("GET", ts.URL+"/test", nil)
+	resp, err := limiter.Do(req, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestSetLogWriterNil(t *testing.T) {
+	// SetLogWriter(nil) should set logWriter to io.Discard
+	SetLogWriter(nil)
+	if logWriter != io.Discard {
+		t.Error("expected logWriter to be io.Discard after SetLogWriter(nil)")
+	}
+}
+
+func TestSetLogWriterCustom(t *testing.T) {
+	var buf strings.Builder
+	SetLogWriter(&buf)
+	if logWriter != &buf {
+		t.Error("expected logWriter to be set to custom writer")
+	}
+	// Reset
+	SetLogWriter(io.Discard)
+}
+
+func TestBackoffCappedAtMax(t *testing.T) {
+	cfg := Config{
+		RequestsPerSecond: 1000,
+		MaxRetries:        10,
+		InitialBackoff:    1 * time.Millisecond,
+		MaxBackoff:        5 * time.Millisecond,
+	}
+	limiter := New(http.DefaultClient, cfg)
+
+	// At a high attempt, backoff should be capped at MaxBackoff (+25% jitter max)
+	d := limiter.backoff(20)
+	maxAllowed := time.Duration(float64(cfg.MaxBackoff) * 1.25)
+	if d > maxAllowed {
+		t.Errorf("backoff %v exceeds max allowed %v", d, maxAllowed)
+	}
+	if d < cfg.MaxBackoff {
+		t.Errorf("backoff %v should be at least MaxBackoff %v", d, cfg.MaxBackoff)
+	}
+}
+
+func TestNoRetriesConfig(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer ts.Close()
+
+	cfg := fastConfig()
+	cfg.MaxRetries = 0
+	limiter := New(ts.Client(), cfg)
+	req, _ := http.NewRequest("GET", ts.URL+"/test", nil)
+	_, err := limiter.Do(req, nil)
+	if err == nil {
+		t.Fatal("expected error with 0 retries")
+	}
+	if !strings.Contains(err.Error(), "max retries (0)") {
+		t.Errorf("expected max retries (0) in error, got: %v", err)
+	}
+}

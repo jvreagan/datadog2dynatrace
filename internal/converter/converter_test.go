@@ -3976,3 +3976,810 @@ func TestMapMetricUnit(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ConvertAll orchestrator tests
+// ---------------------------------------------------------------------------
+
+func TestConvertAllEmpty(t *testing.T) {
+	c := New(Options{})
+	result, errs := c.ConvertAll(&datadog.ExtractionResult{})
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors, got %d", len(errs))
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+}
+
+func TestConvertAllPropagatesErrors(t *testing.T) {
+	c := New(Options{})
+	ext := &datadog.ExtractionResult{
+		Dashboards: []datadog.Dashboard{
+			{Title: "Empty", Widgets: []datadog.Widget{}}, // no widgets → error
+		},
+		Monitors: []datadog.Monitor{
+			{Name: "Bad Monitor", Type: "unknown_type", Query: ""},
+		},
+		SLOs: []datadog.SLO{
+			{Name: "Bad SLO", Type: "unsupported"},
+		},
+		Synthetics: []datadog.SyntheticTest{
+			{Name: "Bad Syn", Type: "unknown"},
+		},
+	}
+	result, errs := c.ConvertAll(ext)
+	if len(errs) < 3 {
+		t.Errorf("expected at least 3 errors, got %d: %v", len(errs), errs)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result even with errors")
+	}
+}
+
+func TestConvertAllMixedSuccess(t *testing.T) {
+	c := New(Options{})
+	ext := &datadog.ExtractionResult{
+		Dashboards: []datadog.Dashboard{
+			{Title: "Good Dash", Widgets: []datadog.Widget{
+				{Definition: datadog.WidgetDefinition{Type: "note", Title: "hi", Content: "hello"}},
+			}},
+		},
+		LogPipelines: []datadog.LogPipeline{
+			{Name: "My Pipeline", IsEnabled: true},
+		},
+		Metrics: []datadog.MetricMetadata{
+			{Metric: "system.cpu.user", Unit: "percent"},
+		},
+		Downtimes: []datadog.Downtime{
+			{ID: 1, Message: "Deploy", Scope: []string{"env:prod"}},
+		},
+		Notifications: []datadog.NotificationChannel{
+			{Name: "Slack", Type: "slack", Config: map[string]interface{}{"url": "https://hooks.slack.com/test", "channel": "#alerts"}},
+		},
+		Notebooks: []datadog.Notebook{
+			{Name: "NB1", Cells: []datadog.NotebookCell{{ID: "c1", Type: "markdown", Attributes: datadog.NotebookCellAttributes{Definition: map[string]interface{}{"text": "hello"}}}}},
+		},
+	}
+	result, errs := c.ConvertAll(ext)
+	if len(errs) != 0 {
+		t.Errorf("expected 0 errors, got %d: %v", len(errs), errs)
+	}
+	if len(result.Dashboards) != 1 {
+		t.Errorf("expected 1 dashboard, got %d", len(result.Dashboards))
+	}
+	if len(result.LogRules) != 1 {
+		t.Errorf("expected 1 log rule, got %d", len(result.LogRules))
+	}
+	if len(result.Metrics) != 1 {
+		t.Errorf("expected 1 metric, got %d", len(result.Metrics))
+	}
+	if len(result.Maintenance) != 1 {
+		t.Errorf("expected 1 maintenance, got %d", len(result.Maintenance))
+	}
+	if len(result.Notifications) != 1 {
+		t.Errorf("expected 1 notification, got %d", len(result.Notifications))
+	}
+	if len(result.Notebooks) != 1 {
+		t.Errorf("expected 1 notebook, got %d", len(result.Notebooks))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// extractQueries — log/APM query paths
+// ---------------------------------------------------------------------------
+
+func TestExtractQueriesLogQuery(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		LogQuery: &datadog.LogQuery{
+			Search:  &datadog.SearchQuery{Query: "status:error"},
+			Compute: &datadog.Compute{Aggregation: "count"},
+			GroupBy: []datadog.GroupBy{{Facet: "service", Limit: 10}},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	found := false
+	for _, r := range results {
+		if r.DQL != "" && r.SourceType == "log" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a DQL result with sourceType 'log'")
+	}
+}
+
+func TestExtractQueriesApmQuery(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		ApmQuery: &datadog.ApmQuery{
+			Search:  &datadog.SearchQuery{Query: "service:web"},
+			Compute: &datadog.Compute{Aggregation: "avg", Facet: "duration"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	found := false
+	for _, r := range results {
+		if r.DQL != "" && r.SourceType == "apm" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected a DQL result with sourceType 'apm'")
+	}
+}
+
+func TestExtractQueriesLogDataSource(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "logs", Query: "service:web status:error"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	if results[0].SourceType != "log" {
+		t.Errorf("expected sourceType 'log', got %q", results[0].SourceType)
+	}
+	if results[0].DQL == "" {
+		t.Error("expected DQL to be set for log data source")
+	}
+}
+
+func TestExtractQueriesSpansDataSource(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "spans", Query: "service:api"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	if results[0].SourceType != "apm" {
+		t.Errorf("expected sourceType 'apm', got %q", results[0].SourceType)
+	}
+}
+
+func TestExtractQueriesFormulaWithDQL(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "logs", Query: "service:web status:error"},
+		},
+		Formulas: []datadog.Formula{
+			{Formula: "a", Alias: "Error Count"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result")
+	}
+	found := false
+	for _, r := range results {
+		if r.FormulaAlias == "Error Count" {
+			found = true
+			if r.DQL == "" {
+				t.Error("expected DQL for log formula")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected formula result with alias 'Error Count'")
+	}
+}
+
+func TestExtractQuery(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		Query: "avg:system.cpu.user{*}",
+	}
+	r := extractQuery(req)
+	if r.MetricSelector == "" {
+		t.Error("expected metric selector from extractQuery")
+	}
+}
+
+func TestExtractQueryEmpty(t *testing.T) {
+	r := extractQuery(&datadog.WidgetRequest{})
+	if r.MetricSelector != "" || r.DQL != "" {
+		t.Error("expected empty result for empty request")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// convertApproxWidget error path
+// ---------------------------------------------------------------------------
+
+func TestConvertApproxWidgetError(t *testing.T) {
+	// A widget with no queries should cause the inner converter to fail
+	w := &datadog.Widget{
+		Definition: datadog.WidgetDefinition{
+			Type:     "heatmap",
+			Title:    "Bad Heatmap",
+			Requests: []datadog.WidgetRequest{},
+		},
+	}
+	dt, err := ConvertDashboard(&datadog.Dashboard{
+		Title:   "Heatmap Dash",
+		Widgets: []datadog.Widget{*w},
+	}, false)
+	// If the heatmap widget fails, the dashboard should fail (no convertible widgets)
+	if err == nil && dt != nil && len(dt.Tiles) == 0 {
+		t.Error("expected either error or no tiles for failed heatmap")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// substituteWidgetVars — LogQuery, ApmQuery, and nested widget paths
+// ---------------------------------------------------------------------------
+
+func TestSubstituteWidgetVarsLogQuery(t *testing.T) {
+	vars := map[string]string{"env": "production"}
+	w := datadog.Widget{
+		Definition: datadog.WidgetDefinition{
+			Requests: []datadog.WidgetRequest{
+				{
+					LogQuery: &datadog.LogQuery{
+						Search: &datadog.SearchQuery{Query: "env:$env status:error"},
+					},
+				},
+			},
+		},
+	}
+	substituteWidgetVars(&w, vars)
+	if w.Definition.Requests[0].LogQuery.Search.Query != "env:production status:error" {
+		t.Errorf("expected substituted log query, got %q", w.Definition.Requests[0].LogQuery.Search.Query)
+	}
+}
+
+func TestSubstituteWidgetVarsApmQuery(t *testing.T) {
+	vars := map[string]string{"service": "web"}
+	w := datadog.Widget{
+		Definition: datadog.WidgetDefinition{
+			Requests: []datadog.WidgetRequest{
+				{
+					ApmQuery: &datadog.ApmQuery{
+						Search: &datadog.SearchQuery{Query: "service:$service"},
+					},
+				},
+			},
+		},
+	}
+	substituteWidgetVars(&w, vars)
+	if w.Definition.Requests[0].ApmQuery.Search.Query != "service:web" {
+		t.Errorf("expected substituted APM query, got %q", w.Definition.Requests[0].ApmQuery.Search.Query)
+	}
+}
+
+func TestSubstituteWidgetVarsNestedGroupWidget(t *testing.T) {
+	vars := map[string]string{"host": "web01"}
+	w := datadog.Widget{
+		Definition: datadog.WidgetDefinition{
+			Type: "group",
+			Widgets: []datadog.Widget{
+				{
+					Definition: datadog.WidgetDefinition{
+						Requests: []datadog.WidgetRequest{
+							{Query: "avg:system.cpu.user{host:$host}"},
+						},
+					},
+				},
+			},
+		},
+	}
+	substituteWidgetVars(&w, vars)
+	got := w.Definition.Widgets[0].Definition.Requests[0].Query
+	if !strings.Contains(got, "web01") {
+		t.Errorf("expected substituted nested query, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Log processor coverage
+// ---------------------------------------------------------------------------
+
+func TestConvertLogProcessorDisabled(t *testing.T) {
+	p := &datadog.LogPipeline{
+		Name:      "Disabled Pipeline",
+		IsEnabled: true,
+		Processors: []datadog.LogProcessor{
+			{Type: "grok-parser", Name: "Parser", IsEnabled: false, Grok: &datadog.GrokRule{MatchRules: "%{WORD:status}"}},
+		},
+	}
+	rule, err := ConvertLogPipeline(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rule.Processor != "" {
+		t.Errorf("expected no processor for disabled processor, got %q", rule.Processor)
+	}
+}
+
+func TestConvertLogProcessorTypes(t *testing.T) {
+	processors := []datadog.LogProcessor{
+		{Type: "attribute-remapper", Name: "Remap", IsEnabled: true, Sources: []string{"source_field"}, Target: "dest_field"},
+		{Type: "date-remapper", Name: "Date", IsEnabled: true, Sources: []string{"date_field"}},
+		{Type: "status-remapper", Name: "Status", IsEnabled: true, Sources: []string{"level"}},
+		{Type: "message-remapper", Name: "Msg", IsEnabled: true, Sources: []string{"msg"}},
+		{Type: "category-processor", Name: "Cat", IsEnabled: true},
+		{Type: "arithmetic-processor", Name: "Arith", IsEnabled: true},
+		{Type: "string-builder-processor", Name: "SB", IsEnabled: true},
+		{Type: "pipeline", Name: "Nested", IsEnabled: true},
+		{Type: "unknown-type", Name: "Unknown", IsEnabled: true},
+	}
+
+	p := &datadog.LogPipeline{
+		Name:       "Multi Processor",
+		IsEnabled:  true,
+		Processors: processors,
+	}
+	rule, err := ConvertLogPipeline(p)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rule.Processor, "FIELDS_RENAME(source_field, dest_field)") {
+		t.Error("expected attribute-remapper conversion")
+	}
+	if !strings.Contains(rule.Processor, "FIELDS_RENAME(date_field, timestamp)") {
+		t.Error("expected date-remapper conversion")
+	}
+	if !strings.Contains(rule.Processor, "FIELDS_RENAME(level, loglevel)") {
+		t.Error("expected status-remapper conversion")
+	}
+	if !strings.Contains(rule.Processor, "FIELDS_RENAME(msg, content)") {
+		t.Error("expected message-remapper conversion")
+	}
+	if !strings.Contains(rule.Processor, "Category processor") {
+		t.Error("expected category-processor comment")
+	}
+	if !strings.Contains(rule.Processor, "Arithmetic processor") {
+		t.Error("expected arithmetic-processor comment")
+	}
+	if !strings.Contains(rule.Processor, "String builder") {
+		t.Error("expected string-builder comment")
+	}
+	if !strings.Contains(rule.Processor, "Nested pipeline") {
+		t.Error("expected nested pipeline comment")
+	}
+	if !strings.Contains(rule.Processor, "Unsupported processor type") {
+		t.Error("expected unsupported processor fallback")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Notebook cell coverage
+// ---------------------------------------------------------------------------
+
+func TestConvertNotebookCellTypes(t *testing.T) {
+	nb := &datadog.Notebook{
+		Name: "Multi Cell NB",
+		Cells: []datadog.NotebookCell{
+			{ID: "c1", Type: "markdown", Attributes: datadog.NotebookCellAttributes{Definition: map[string]interface{}{"text": "# Title"}}},
+			{ID: "c2", Type: "timeseries", Attributes: datadog.NotebookCellAttributes{Definition: map[string]interface{}{}}},
+			{ID: "c3", Type: "query_value", Attributes: datadog.NotebookCellAttributes{Definition: map[string]interface{}{}}},
+			{ID: "c4", Type: "unknown_cell_type", Attributes: datadog.NotebookCellAttributes{Definition: map[string]interface{}{}}},
+		},
+	}
+	result, err := ConvertNotebook(nb)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Sections) != 4 {
+		t.Fatalf("expected 4 sections, got %d", len(result.Sections))
+	}
+	if result.Sections[0].Type != "markdown" {
+		t.Errorf("expected markdown type for cell 1")
+	}
+	if result.Sections[0].Content != "# Title" {
+		t.Errorf("expected content '# Title', got %q", result.Sections[0].Content)
+	}
+	if result.Sections[1].Type != "code" {
+		t.Errorf("expected code type for timeseries cell")
+	}
+	if result.Sections[2].Type != "code" {
+		t.Errorf("expected code type for query_value cell")
+	}
+	if result.Sections[3].Type != "markdown" {
+		t.Errorf("expected markdown fallback for unknown cell type")
+	}
+	if !strings.Contains(result.Sections[3].Content, "unknown_cell_type") {
+		t.Errorf("expected unknown type in fallback content")
+	}
+}
+
+func TestConvertNotebookCellWithQuery(t *testing.T) {
+	nb := &datadog.Notebook{
+		Name: "Query NB",
+		Cells: []datadog.NotebookCell{
+			{
+				ID:   "c1",
+				Type: "timeseries",
+				Attributes: datadog.NotebookCellAttributes{
+					Definition: map[string]interface{}{
+						"requests": []interface{}{
+							map[string]interface{}{"q": "avg:system.cpu.user{*}"},
+						},
+					},
+				},
+			},
+		},
+	}
+	result, err := ConvertNotebook(nb)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(result.Sections))
+	}
+	// The query extraction may or may not succeed depending on json marshal/unmarshal
+	// but the section should at least be created
+	if result.Sections[0].Type != "code" {
+		t.Errorf("expected code type, got %q", result.Sections[0].Type)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Synthetic assertion and browser step coverage
+// ---------------------------------------------------------------------------
+
+func TestConvertAssertionTypes(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   datadog.SyntheticAssertion
+		wantNil bool
+		check   func(t *testing.T, r *dynatrace.ValidationRule)
+	}{
+		{
+			name:  "statusCode",
+			input: datadog.SyntheticAssertion{Type: "statusCode", Target: 200},
+			check: func(t *testing.T, r *dynatrace.ValidationRule) {
+				if r.Type != "httpStatusesList" {
+					t.Errorf("expected httpStatusesList, got %q", r.Type)
+				}
+			},
+		},
+		{
+			name:  "body contains",
+			input: datadog.SyntheticAssertion{Type: "body", Target: "success", Operator: "contains"},
+			check: func(t *testing.T, r *dynatrace.ValidationRule) {
+				if !r.PassIfFound {
+					t.Error("expected PassIfFound=true for contains")
+				}
+			},
+		},
+		{
+			name:  "body notContains",
+			input: datadog.SyntheticAssertion{Type: "body", Target: "error", Operator: "notContains"},
+			check: func(t *testing.T, r *dynatrace.ValidationRule) {
+				if r.PassIfFound {
+					t.Error("expected PassIfFound=false for notContains")
+				}
+			},
+		},
+		{
+			name:  "responseTime",
+			input: datadog.SyntheticAssertion{Type: "responseTime", Target: 5000},
+			check: func(t *testing.T, r *dynatrace.ValidationRule) {
+				if r.Type != "patternConstraint" {
+					t.Errorf("expected patternConstraint, got %q", r.Type)
+				}
+			},
+		},
+		{
+			name:    "unsupported type",
+			input:   datadog.SyntheticAssertion{Type: "header"},
+			wantNil: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := convertAssertion(&tt.input)
+			if tt.wantNil {
+				if r != nil {
+					t.Error("expected nil")
+				}
+				return
+			}
+			if r == nil {
+				t.Fatal("expected non-nil")
+			}
+			if tt.check != nil {
+				tt.check(t, r)
+			}
+		})
+	}
+}
+
+func TestConvertBrowserStepTypes(t *testing.T) {
+	tests := []struct {
+		name  string
+		input datadog.BrowserStep
+		check func(t *testing.T, e *dynatrace.ScriptEvent)
+	}{
+		{
+			name:  "click step",
+			input: datadog.BrowserStep{Type: "click", Name: "Click Button", Params: map[string]interface{}{"element": "#btn"}},
+			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
+				if e.Type != "click" {
+					t.Errorf("expected click, got %q", e.Type)
+				}
+				if e.Target == nil || len(e.Target.Locators) == 0 {
+					t.Fatal("expected locators")
+				}
+				if e.Target.Locators[0].Value != "#btn" {
+					t.Errorf("expected '#btn', got %q", e.Target.Locators[0].Value)
+				}
+			},
+		},
+		{
+			name:  "typeText step",
+			input: datadog.BrowserStep{Type: "typeText", Name: "Type Username", Params: map[string]interface{}{"element": "#input"}},
+			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
+				if e.Type != "keystrokes" {
+					t.Errorf("expected keystrokes, got %q", e.Type)
+				}
+			},
+		},
+		{
+			name:  "wait step",
+			input: datadog.BrowserStep{Type: "wait", Name: "Wait for page"},
+			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
+				if e.Type != "javascript" {
+					t.Errorf("expected javascript, got %q", e.Type)
+				}
+				if e.Wait == nil {
+					t.Fatal("expected wait config")
+				}
+			},
+		},
+		{
+			name:  "assertElementPresent step",
+			input: datadog.BrowserStep{Type: "assertElementPresent", Name: "Assert Logo"},
+			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
+				if e.Type != "javascript" {
+					t.Errorf("expected javascript, got %q", e.Type)
+				}
+				if !strings.Contains(e.Description, "Assert") {
+					t.Errorf("expected Assert in description")
+				}
+			},
+		},
+		{
+			name:  "unknown step",
+			input: datadog.BrowserStep{Type: "scroll", Name: "Scroll Down"},
+			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
+				if e.Type != "javascript" {
+					t.Errorf("expected javascript, got %q", e.Type)
+				}
+				if !strings.Contains(e.Description, "Migrated") {
+					t.Errorf("expected [Migrated] in description")
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := convertBrowserStep(&tt.input)
+			if e == nil {
+				t.Fatal("expected non-nil event")
+			}
+			tt.check(t, e)
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// getStringParam and maxInt
+// ---------------------------------------------------------------------------
+
+func TestGetStringParam(t *testing.T) {
+	params := map[string]interface{}{"key": "value", "num": 42}
+	if got := getStringParam(params, "key"); got != "value" {
+		t.Errorf("expected 'value', got %q", got)
+	}
+	if got := getStringParam(params, "num"); got != "" {
+		t.Errorf("expected empty for non-string, got %q", got)
+	}
+	if got := getStringParam(params, "missing"); got != "" {
+		t.Errorf("expected empty for missing key, got %q", got)
+	}
+	if got := getStringParam(nil, "key"); got != "" {
+		t.Errorf("expected empty for nil params, got %q", got)
+	}
+}
+
+func TestMaxInt(t *testing.T) {
+	if got := maxInt(5, 3); got != 5 {
+		t.Errorf("maxInt(5,3) = %d, want 5", got)
+	}
+	if got := maxInt(3, 5); got != 5 {
+		t.Errorf("maxInt(3,5) = %d, want 5", got)
+	}
+	if got := maxInt(4, 4); got != 4 {
+		t.Errorf("maxInt(4,4) = %d, want 4", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SLO edge cases
+// ---------------------------------------------------------------------------
+
+func TestConvertSLONoThresholds(t *testing.T) {
+	dd := &datadog.SLO{
+		Name:        "No Threshold SLO",
+		Type:        "metric",
+		Description: "test",
+		Query:       &datadog.SLOQuery{Numerator: "sum:requests.success{*}", Denominator: "sum:requests.total{*}"},
+	}
+	dt, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dt.Target != 99.0 {
+		t.Errorf("expected default target 99.0, got %f", dt.Target)
+	}
+	if dt.Timeframe != "-1M" {
+		t.Errorf("expected default timeframe '-1M', got %q", dt.Timeframe)
+	}
+}
+
+func TestTranslateSLOQuery(t *testing.T) {
+	// translateSLOQuery converts a DD metric query to DT metric selector
+	got := translateSLOQuery("sum:requests.success{env:prod}")
+	if got == "" {
+		t.Error("expected non-empty metric selector")
+	}
+	if !strings.Contains(got, "requests.success") {
+		t.Errorf("expected converted selector to reference requests.success, got %q", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// mapFrequency edge cases
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// extractQueries formula edge cases
+// ---------------------------------------------------------------------------
+
+func TestExtractQueriesMixedFormula(t *testing.T) {
+	// Formula that references both metric and DQL queries
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+			{Name: "b", DataSource: "logs", Query: "service:web status:error"},
+		},
+		Formulas: []datadog.Formula{
+			{Formula: "a + b"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected at least one result for mixed formula")
+	}
+}
+
+func TestExtractQueriesFormulaNoAlias(t *testing.T) {
+	// Formula without an alias should use the formula expression
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+		},
+		Formulas: []datadog.Formula{
+			{Formula: "a"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) == 0 {
+		t.Fatal("expected result")
+	}
+	if results[0].FormulaAlias != "a" {
+		t.Errorf("expected alias 'a' (from formula), got %q", results[0].FormulaAlias)
+	}
+}
+
+func TestExtractQueriesMultipleFormulas(t *testing.T) {
+	req := &datadog.WidgetRequest{
+		Queries: []datadog.QueryDef{
+			{Name: "a", DataSource: "metrics", Query: "avg:system.cpu.user{*}"},
+			{Name: "b", DataSource: "metrics", Query: "avg:system.cpu.system{*}"},
+		},
+		Formulas: []datadog.Formula{
+			{Formula: "a", Alias: "User CPU"},
+			{Formula: "b", Alias: "System CPU"},
+		},
+	}
+	results := extractQueries(req)
+	if len(results) < 2 {
+		t.Fatalf("expected at least 2 results, got %d", len(results))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// convertNotebookCell with parseable query
+// ---------------------------------------------------------------------------
+
+func TestConvertNotebookCellTimeseriesWithQuery(t *testing.T) {
+	nb := &datadog.Notebook{
+		Name: "Query NB",
+		Cells: []datadog.NotebookCell{
+			{
+				ID:   "c1",
+				Type: "timeseries",
+				Attributes: datadog.NotebookCellAttributes{
+					Definition: map[string]interface{}{
+						"requests": []map[string]interface{}{
+							{"q": "avg:system.cpu.user{*}"},
+						},
+					},
+				},
+			},
+		},
+	}
+	result, err := ConvertNotebook(nb)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(result.Sections))
+	}
+	if result.Sections[0].Visualization != "chart" {
+		t.Errorf("expected 'chart' visualization, got %q", result.Sections[0].Visualization)
+	}
+}
+
+func TestConvertNotebookCellQueryValueWithQuery(t *testing.T) {
+	nb := &datadog.Notebook{
+		Name: "QV NB",
+		Cells: []datadog.NotebookCell{
+			{
+				ID:   "c1",
+				Type: "query_value",
+				Attributes: datadog.NotebookCellAttributes{
+					Definition: map[string]interface{}{
+						"requests": []map[string]interface{}{
+							{"q": "avg:system.mem.used{*}"},
+						},
+					},
+				},
+			},
+		},
+	}
+	result, err := ConvertNotebook(nb)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(result.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(result.Sections))
+	}
+	if result.Sections[0].Type != "code" {
+		t.Errorf("expected 'code' type, got %q", result.Sections[0].Type)
+	}
+}
+
+func TestMapFrequencyEdgeCases(t *testing.T) {
+	tests := []struct {
+		input int
+		want  int
+	}{
+		{0, 15},   // zero → default
+		{-1, 15},  // negative → default
+		{30, 1},   // 30s → 1min
+		{120, 2},  // 2min
+		{300, 5},  // 5min
+		{600, 10}, // 10min
+		{3600, 60},
+		{7200, 60}, // > 60min → capped at 60
+	}
+	for _, tt := range tests {
+		got := mapFrequency(tt.input)
+		if got != tt.want {
+			t.Errorf("mapFrequency(%d) = %d, want %d", tt.input, got, tt.want)
+		}
+	}
+}
