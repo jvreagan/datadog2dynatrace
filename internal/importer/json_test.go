@@ -22,11 +22,6 @@ func TestImportDashboardsJSON(t *testing.T) {
 			json:      `{"title":"My Dashboard","widgets":[]}`,
 			wantCount: 1,
 		},
-		{
-			name:      "wrapper format",
-			json:      `{"dashboards":[{"title":"Wrapped","widgets":[]}]}`,
-			wantCount: 1,
-		},
 	}
 
 	for _, tt := range tests {

@@ -1,0 +1,101 @@
+{
+  "id": "dash-real-001",
+  "title": "Realistic Production Dashboard",
+  "description": "Dashboard with extra API fields",
+  "layout_type": "ordered",
+  "url": "/dashboard/dash-real-001/realistic-production-dashboard",
+  "author_handle": "admin@example.com",
+  "author_name": "Admin User",
+  "is_read_only": false,
+  "notify_list": ["admin@example.com"],
+  "reflow_type": "auto",
+  "created_at": "2024-01-15T10:30:00.000000+00:00",
+  "modified_at": "2024-06-20T14:45:00.000000+00:00",
+  "widgets": [
+    {
+      "id": 2001,
+      "definition": {
+        "type": "timeseries",
+        "title": "CPU Usage Over Time",
+        "requests": [
+          {
+            "q": "avg:system.cpu.user{env:prod} by {host}",
+            "display_type": "line",
+            "style": {
+              "palette": "dog_classic",
+              "line_type": "solid",
+              "line_width": "normal"
+            }
+          }
+        ],
+        "yaxis": {
+          "min": "0",
+          "max": "100",
+          "scale": "linear",
+          "label": "",
+          "include_zero": true
+        },
+        "markers": [
+          {
+            "value": "y = 90",
+            "display_type": "error dashed",
+            "label": "Critical"
+          }
+        ]
+      },
+      "layout": {"x": 0, "y": 0, "width": 6, "height": 3}
+    },
+    {
+      "id": 2002,
+      "definition": {
+        "type": "query_value",
+        "title": "Memory Utilization",
+        "requests": [
+          {
+            "q": "avg:system.mem.used{env:prod}",
+            "display_type": "line"
+          }
+        ],
+        "precision": 1,
+        "autoscale": true
+      },
+      "layout": {"x": 6, "y": 0, "width": 3, "height": 3}
+    },
+    {
+      "id": 2003,
+      "definition": {
+        "type": "note",
+        "content": "## Disk Metrics\nStorage monitoring section",
+        "font_size": "14",
+        "text_align": "left"
+      },
+      "layout": {"x": 0, "y": 3, "width": 12, "height": 1}
+    },
+    {
+      "id": 2004,
+      "definition": {
+        "type": "timeseries",
+        "title": "Disk IO Rate",
+        "requests": [
+          {
+            "q": "avg:system.io.await{env:prod} by {device}",
+            "display_type": "area",
+            "style": {
+              "palette": "warm",
+              "line_type": "solid",
+              "line_width": "thin"
+            }
+          }
+        ],
+        "yaxis": {
+          "min": "0",
+          "scale": "linear"
+        }
+      },
+      "layout": {"x": 0, "y": 4, "width": 12, "height": 3}
+    }
+  ],
+  "template_variables": [
+    {"name": "env", "prefix": "env", "default": "prod", "available_values": ["prod", "staging", "dev"]}
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "data": [
+    {
+      "id": "slo-real-001",
+      "name": "Realistic API Availability SLO",
+      "description": "API should maintain 99.9% availability",
+      "type": "metric",
+      "tags": ["service:api-gateway", "env:prod"],
+      "query": {
+        "numerator": "sum:trace.http.request.hits{service:api-gateway,http.status_code:2*}.as_count()",
+        "denominator": "sum:trace.http.request.hits{service:api-gateway}.as_count()"
+      },
+      "thresholds": [
+        {"timeframe": "7d", "target": 99.9, "warning": 99.95},
+        {"timeframe": "30d", "target": 99.9, "warning": 99.95}
+      ],
+      "creator": {
+        "name": "SRE Team",
+        "handle": "sre-team@example.com",
+        "email": "sre-team@example.com"
+      },
+      "overall_status": [
+        {"timeframe": "7d", "status": "OK", "sli_value": 99.97},
+        {"timeframe": "30d", "status": "OK", "sli_value": 99.95}
+      ],
+      "errors": null,
+      "created_at": 1707580800,
+      "modified_at": 1721500000
+    }
+  ],
+  "errors": null,
+  "metadata": {
+    "page": {
+      "total_count": 1,
+      "total_filtered_count": 1
+    }
+  }
+}

@@ -807,3 +807,116 @@ func TestEndToEndGrailDashboard(t *testing.T) {
 		t.Error("expected at least one DATA_EXPLORER tile in Grail mode")
 	}
 }
+
+// TestEndToEndRealisticFixtures verifies the pipeline handles realistic API responses
+// with extra fields (url, author_handle, creator, org_id, overall_state, etc.).
+func TestEndToEndRealisticFixtures(t *testing.T) {
+	realisticDir := filepath.Join("testdata", "realistic")
+
+	// Step 1: Import from realistic fixtures
+	ext, err := importer.ImportFromDirectory(realisticDir)
+	if err != nil {
+		t.Fatalf("ImportFromDirectory failed: %v", err)
+	}
+
+	// Verify extraction counts
+	if len(ext.Dashboards) != 1 {
+		t.Errorf("expected 1 dashboard, got %d", len(ext.Dashboards))
+	}
+	if len(ext.Monitors) != 2 {
+		t.Errorf("expected 2 monitors, got %d", len(ext.Monitors))
+	}
+	if len(ext.SLOs) != 1 {
+		t.Errorf("expected 1 SLO, got %d", len(ext.SLOs))
+	}
+	if len(ext.Synthetics) != 1 {
+		t.Errorf("expected 1 synthetic, got %d", len(ext.Synthetics))
+	}
+
+	// Verify specific field values survived import despite extra API fields
+	if ext.Dashboards[0].Title != "Realistic Production Dashboard" {
+		t.Errorf("dashboard title: got %q, want %q", ext.Dashboards[0].Title, "Realistic Production Dashboard")
+	}
+	if ext.Dashboards[0].ID != "dash-real-001" {
+		t.Errorf("dashboard ID: got %q, want %q", ext.Dashboards[0].ID, "dash-real-001")
+	}
+	if len(ext.Dashboards[0].Widgets) != 4 {
+		t.Errorf("expected 4 widgets, got %d", len(ext.Dashboards[0].Widgets))
+	}
+
+	if ext.Monitors[0].Name != "Realistic CPU Monitor" {
+		t.Errorf("monitor name: got %q, want %q", ext.Monitors[0].Name, "Realistic CPU Monitor")
+	}
+	if ext.Monitors[0].ID != 20001 {
+		t.Errorf("monitor ID: got %d, want 20001", ext.Monitors[0].ID)
+	}
+	if ext.Monitors[1].Name != "Realistic Disk Monitor" {
+		t.Errorf("monitor name: got %q, want %q", ext.Monitors[1].Name, "Realistic Disk Monitor")
+	}
+
+	if ext.SLOs[0].Name != "Realistic API Availability SLO" {
+		t.Errorf("SLO name: got %q, want %q", ext.SLOs[0].Name, "Realistic API Availability SLO")
+	}
+	if ext.SLOs[0].ID != "slo-real-001" {
+		t.Errorf("SLO ID: got %q, want %q", ext.SLOs[0].ID, "slo-real-001")
+	}
+	if ext.SLOs[0].Query == nil || ext.SLOs[0].Query.Numerator == "" {
+		t.Error("SLO query numerator should not be empty")
+	}
+
+	if ext.Synthetics[0].PublicID != "syn-real-001" {
+		t.Errorf("synthetic public_id: got %q, want %q", ext.Synthetics[0].PublicID, "syn-real-001")
+	}
+	if ext.Synthetics[0].Name != "Realistic API Health Check" {
+		t.Errorf("synthetic name: got %q, want %q", ext.Synthetics[0].Name, "Realistic API Health Check")
+	}
+
+	// Step 2: Convert DD → DT
+	conv := converter.New(converter.Options{})
+	result, errs := conv.ConvertAll(ext)
+	for _, e := range errs {
+		t.Logf("conversion warning: %v", e)
+	}
+
+	// Verify conversions produced output
+	if len(result.Dashboards) == 0 {
+		t.Error("expected at least 1 converted dashboard")
+	}
+	if len(result.MetricEvents) == 0 {
+		t.Error("expected at least 1 metric event")
+	}
+	if len(result.SLOs) == 0 {
+		t.Error("expected at least 1 SLO")
+	}
+	if len(result.Synthetics) == 0 {
+		t.Error("expected at least 1 synthetic monitor")
+	}
+
+	// Verify dashboard has tiles from the 4 widgets
+	if len(result.Dashboards) > 0 {
+		dash := result.Dashboards[0]
+		if len(dash.Tiles) < 3 {
+			t.Errorf("expected at least 3 tiles from 4 widgets, got %d", len(dash.Tiles))
+		}
+	}
+
+	// Step 3: Generate Terraform output
+	tfDir := t.TempDir()
+	gen := terraform.NewGenerator(tfDir)
+	if err := gen.GenerateAll(result); err != nil {
+		t.Fatalf("GenerateAll failed: %v", err)
+	}
+
+	// Verify key TF files are non-empty
+	for _, f := range []string{"provider.tf", "dashboards.tf", "metric_events.tf", "slos.tf", "synthetics.tf"} {
+		path := filepath.Join(tfDir, f)
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("expected TF file %s: %v", f, err)
+			continue
+		}
+		if info.Size() == 0 {
+			t.Errorf("TF file %s is empty", f)
+		}
+	}
+}

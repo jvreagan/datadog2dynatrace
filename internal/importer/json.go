@@ -86,15 +86,6 @@ func importDashboards(data []byte, result *datadog.ExtractionResult) error {
 		return nil
 	}
 
-	// Try wrapper format
-	var wrapper struct {
-		Dashboards []datadog.Dashboard `json:"dashboards"`
-	}
-	if err := json.Unmarshal(data, &wrapper); err == nil && len(wrapper.Dashboards) > 0 {
-		result.Dashboards = append(result.Dashboards, wrapper.Dashboards...)
-		return nil
-	}
-
 	return fmt.Errorf("could not parse dashboard JSON")
 }
 

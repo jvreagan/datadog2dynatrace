@@ -24,3 +24,27 @@ jobs:
 
       - name: Test
         run: go test ./... -count=1 -race
+
+      - name: Coverage check
+        run: |
+          THRESHOLD=95
+          FAILED=0
+          PACKAGES=(
+            config converter converter/query datadog dynatrace
+            importer logging ratelimit report terraform
+          )
+          for pkg in "${PACKAGES[@]}"; do
+            OUTPUT=$(go test ./internal/${pkg}/ -coverprofile=/dev/null -cover 2>&1)
+            COVERAGE=$(echo "$OUTPUT" | grep -oP 'coverage: \K[0-9]+\.[0-9]+' || echo "0")
+            COVERAGE_INT=${COVERAGE%.*}
+            if [ "$COVERAGE_INT" -lt "$THRESHOLD" ]; then
+              echo "FAIL: internal/${pkg} coverage is ${COVERAGE}% (threshold: ${THRESHOLD}%)"
+              FAILED=1
+            else
+              echo "OK:   internal/${pkg} coverage is ${COVERAGE}%"
+            fi
+          done
+          if [ "$FAILED" -eq 1 ]; then
+            echo "Coverage check failed."
+            exit 1
+          fi

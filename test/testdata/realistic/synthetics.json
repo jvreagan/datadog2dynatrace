@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "public_id": "syn-real-001",
+      "name": "Realistic API Health Check",
+      "type": "api",
+      "subtype": "http",
+      "config": {
+        "request": {
+          "method": "GET",
+          "url": "https://api.example.com/v2/health",
+          "headers": {
+            "Accept": "application/json"
+          },
+          "timeout": 30
+        },
+        "assertions": [
+          {"type": "statusCode", "operator": "is", "target": 200},
+          {"type": "responseTime", "operator": "lessThan", "target": 3000}
+        ]
+      },
+      "options": {
+        "tick_every": 120,
+        "min_failure_duration": 0,
+        "min_location_failed": 1,
+        "follow_redirects": true,
+        "retry": {"count": 3, "interval": 1000},
+        "ci": {
+          "executionRule": "blocking"
+        }
+      },
+      "message": "API health check failed.\n@slack-oncall",
+      "tags": ["service:api-gateway", "env:prod"],
+      "status": "live",
+      "locations": ["aws:us-east-1", "aws:eu-west-1"],
+      "monitor_id": 90001,
+      "creator": {
+        "name": "QA Team",
+        "handle": "qa@example.com",
+        "email": "qa@example.com"
+      },
+      "overall_state": 0,
+      "overall_state_modified": "2024-09-01T00:00:00.000000+00:00"
+    }
+  ]
+}
