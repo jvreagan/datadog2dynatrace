@@ -30,10 +30,10 @@ func TestValidateDynatraceMissingURL(t *testing.T) {
 	}
 }
 
-func TestValidateDynatraceMissingToken(t *testing.T) {
+func TestValidateDynatraceMissingAuth(t *testing.T) {
 	cfg := &Config{Dynatrace: DynatraceConfig{EnvURL: "https://test.dynatrace.com"}}
 	if err := cfg.ValidateDynatrace(); err == nil {
-		t.Error("expected error for missing token")
+		t.Error("expected error for missing auth")
 	}
 }
 
@@ -86,8 +86,8 @@ func TestValidateDynatraceErrorMessages(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.Contains(err.Error(), "API token") {
-		t.Errorf("expected 'API token' in error, got %q", err.Error())
+	if !strings.Contains(err.Error(), "auth is required") {
+		t.Errorf("expected 'auth is required' in error, got %q", err.Error())
 	}
 }
 
@@ -220,5 +220,81 @@ func TestVersion(t *testing.T) {
 	}
 	if Version != "dev" {
 		t.Logf("Version is %q (overridden from default 'dev')", Version)
+	}
+}
+
+func TestValidateDynatraceOAuthOK(t *testing.T) {
+	cfg := &Config{Dynatrace: DynatraceConfig{
+		EnvURL:       "https://test.live.dynatrace.com",
+		ClientID:     "dt0s02.client",
+		ClientSecret: "dt0s02.client.secret",
+	}}
+	if err := cfg.ValidateDynatrace(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateDynatraceOAuthMissingSecret(t *testing.T) {
+	cfg := &Config{Dynatrace: DynatraceConfig{
+		EnvURL:   "https://test.live.dynatrace.com",
+		ClientID: "dt0s02.client",
+	}}
+	err := cfg.ValidateDynatrace()
+	if err == nil {
+		t.Fatal("expected error for missing client secret")
+	}
+	if !strings.Contains(err.Error(), "client secret") {
+		t.Errorf("expected 'client secret' in error, got %q", err.Error())
+	}
+}
+
+func TestValidateDynatraceOAuthMissingID(t *testing.T) {
+	cfg := &Config{Dynatrace: DynatraceConfig{
+		EnvURL:       "https://test.live.dynatrace.com",
+		ClientSecret: "dt0s02.client.secret",
+	}}
+	err := cfg.ValidateDynatrace()
+	if err == nil {
+		t.Fatal("expected error for missing client ID")
+	}
+	if !strings.Contains(err.Error(), "client ID") {
+		t.Errorf("expected 'client ID' in error, got %q", err.Error())
+	}
+}
+
+func TestValidateDynatraceBothTokenAndOAuth(t *testing.T) {
+	cfg := &Config{Dynatrace: DynatraceConfig{
+		EnvURL:       "https://test.live.dynatrace.com",
+		APIToken:     "dt0c01.token",
+		ClientID:     "dt0s02.client",
+		ClientSecret: "dt0s02.client.secret",
+	}}
+	// Both are acceptable, OAuth takes priority in code but validation passes
+	if err := cfg.ValidateDynatrace(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestBindFlagsIncludesOAuth(t *testing.T) {
+	viper.Reset()
+	cmd := &cobra.Command{Use: "test"}
+	BindFlags(cmd)
+
+	for _, name := range []string{"dt-client-id", "dt-client-secret"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("expected flag %q to be registered", name)
+		}
+	}
+}
+
+func TestBindValidateFlagsIncludesOAuth(t *testing.T) {
+	viper.Reset()
+	cmd := &cobra.Command{Use: "test"}
+	BindValidateFlags(cmd)
+
+	for _, name := range []string{"dt-client-id", "dt-client-secret"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("expected flag %q to be registered", name)
+		}
 	}
 }

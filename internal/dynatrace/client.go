@@ -14,13 +14,16 @@ import (
 
 // Client handles communication with the Dynatrace API.
 type Client struct {
-	envURL     string
-	apiToken   string
-	httpClient *http.Client
-	limiter    *ratelimit.Limiter
+	envURL      string
+	apiToken    string
+	httpClient  *http.Client
+	limiter     *ratelimit.Limiter
+	auth        authProvider
+	platformURL string
+	isGen3      bool
 }
 
-// NewClient creates a new Dynatrace API client.
+// NewClient creates a new Dynatrace API client using Api-Token auth.
 func NewClient(envURL, apiToken string) *Client {
 	return newClientWithConfig(envURL, apiToken, ratelimit.Config{
 		RequestsPerSecond: 10,
@@ -41,6 +44,45 @@ func newClientWithConfig(envURL, apiToken string, cfg ratelimit.Config) *Client 
 		apiToken:   apiToken,
 		httpClient: httpClient,
 		limiter:    ratelimit.New(httpClient, cfg),
+		auth:       &tokenAuth{token: apiToken},
+	}
+}
+
+// NewOAuthClient creates a Dynatrace API client using OAuth2 client_credentials.
+func NewOAuthClient(envURL, clientID, clientSecret string) *Client {
+	envURL = strings.TrimRight(envURL, "/")
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	return &Client{
+		envURL:      envURL,
+		httpClient:  httpClient,
+		limiter:     ratelimit.New(httpClient, ratelimit.Config{
+			RequestsPerSecond: 10,
+			MaxRetries:        5,
+			InitialBackoff:    1 * time.Second,
+			MaxBackoff:        60 * time.Second,
+		}),
+		auth:        newOAuthAuth(clientID, clientSecret, httpClient),
+		platformURL: derivePlatformURL(envURL),
+		isGen3:      true,
+	}
+}
+
+// newOAuthClientWithConfig creates an OAuth client with custom rate limiter config (for testing).
+func newOAuthClientWithConfig(envURL, clientID, clientSecret string, cfg ratelimit.Config) *Client {
+	envURL = strings.TrimRight(envURL, "/")
+	httpClient := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	oa := newOAuthAuth(clientID, clientSecret, httpClient)
+	return &Client{
+		envURL:      envURL,
+		httpClient:  httpClient,
+		limiter:     ratelimit.New(httpClient, cfg),
+		auth:        oa,
+		platformURL: derivePlatformURL(envURL),
+		isGen3:      true,
 	}
 }
 
@@ -55,13 +97,44 @@ func NewTestClient(envURL, apiToken string) *Client {
 	})
 }
 
+// derivePlatformURL converts an environment URL to the platform/apps URL.
+// e.g. https://abc12345.live.dynatrace.com → https://abc12345.apps.dynatrace.com
+func derivePlatformURL(envURL string) string {
+	return strings.Replace(envURL, ".live.dynatrace.com", ".apps.dynatrace.com", 1)
+}
+
 // Validate checks that the API credentials are valid.
 func (c *Client) Validate() error {
+	if c.isGen3 {
+		// For OAuth, validate by hitting the v2 cluster time endpoint
+		req, err := http.NewRequest("GET", c.envURL+"/api/v2/time", nil)
+		if err != nil {
+			return fmt.Errorf("creating request: %w", err)
+		}
+		if err := c.setHeaders(req); err != nil {
+			return fmt.Errorf("setting auth: %w", err)
+		}
+
+		resp, err := c.limiter.Do(req, nil)
+		if err != nil {
+			return fmt.Errorf("connecting to Dynatrace API: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			return fmt.Errorf("Dynatrace API validation failed (HTTP %d): %s", resp.StatusCode, string(body))
+		}
+		return nil
+	}
+
 	req, err := http.NewRequest("GET", c.envURL+"/api/v1/time", nil)
 	if err != nil {
 		return fmt.Errorf("creating request: %w", err)
 	}
-	c.setHeaders(req)
+	if err := c.setHeaders(req); err != nil {
+		return fmt.Errorf("setting auth: %w", err)
+	}
 
 	resp, err := c.limiter.Do(req, nil)
 	if err != nil {
@@ -76,9 +149,12 @@ func (c *Client) Validate() error {
 	return nil
 }
 
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Api-Token "+c.apiToken)
+func (c *Client) setHeaders(req *http.Request) error {
+	if err := c.auth.setAuth(req); err != nil {
+		return err
+	}
 	req.Header.Set("Content-Type", "application/json")
+	return nil
 }
 
 // get performs a GET request and returns the response body.
@@ -88,7 +164,9 @@ func (c *Client) get(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	c.setHeaders(req)
+	if err := c.setHeaders(req); err != nil {
+		return nil, fmt.Errorf("setting auth: %w", err)
+	}
 
 	resp, err := c.limiter.Do(req, nil)
 	if err != nil {
@@ -120,7 +198,9 @@ func (c *Client) post(path string, body interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	c.setHeaders(req)
+	if err := c.setHeaders(req); err != nil {
+		return nil, fmt.Errorf("setting auth: %w", err)
+	}
 
 	resp, err := c.limiter.Do(req, jsonBody)
 	if err != nil {
@@ -152,7 +232,9 @@ func (c *Client) put(path string, body interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
 	}
-	c.setHeaders(req)
+	if err := c.setHeaders(req); err != nil {
+		return nil, fmt.Errorf("setting auth: %w", err)
+	}
 
 	resp, err := c.limiter.Do(req, jsonBody)
 	if err != nil {
@@ -170,6 +252,74 @@ func (c *Client) put(path string, body interface{}) ([]byte, error) {
 	}
 
 	return respBody, nil
+}
+
+// getPlatform performs a GET request against the platform/apps URL.
+func (c *Client) getPlatform(path string) ([]byte, error) {
+	logging.Debug("Dynatrace Platform API GET %s", path)
+	req, err := http.NewRequest("GET", c.platformURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	if err := c.setHeaders(req); err != nil {
+		return nil, fmt.Errorf("setting auth: %w", err)
+	}
+
+	resp, err := c.limiter.Do(req, nil)
+	if err != nil {
+		return nil, fmt.Errorf("platform API request to %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("platform API request to %s failed (HTTP %d): %s", path, resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+// postPlatform performs a POST request against the platform/apps URL.
+func (c *Client) postPlatform(path string, body interface{}) ([]byte, error) {
+	logging.Debug("Dynatrace Platform API POST %s", path)
+	jsonBody, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling request body: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", c.platformURL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	if err := c.setHeaders(req); err != nil {
+		return nil, fmt.Errorf("setting auth: %w", err)
+	}
+
+	resp, err := c.limiter.Do(req, jsonBody)
+	if err != nil {
+		return nil, fmt.Errorf("platform API request to %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("platform API request to %s failed (HTTP %d): %s", path, resp.StatusCode, string(respBody))
+	}
+
+	return respBody, nil
+}
+
+// IsGen3 returns whether this client is configured for Gen3/Platform APIs.
+func (c *Client) IsGen3() bool {
+	return c.isGen3
 }
 
 // PushOptions configures the behavior of PushAll.

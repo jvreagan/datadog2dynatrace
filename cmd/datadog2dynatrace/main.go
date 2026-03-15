@@ -67,6 +67,13 @@ func convertCmd() *cobra.Command {
 	return cmd
 }
 
+func newDTClient(cfg *config.Config) *dynatrace.Client {
+	if cfg.Dynatrace.ClientID != "" && cfg.Dynatrace.ClientSecret != "" {
+		return dynatrace.NewOAuthClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.ClientID, cfg.Dynatrace.ClientSecret)
+	}
+	return dynatrace.NewClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.APIToken)
+}
+
 func initLogging(cfg *config.Config) {
 	switch {
 	case cfg.Debug:
@@ -110,13 +117,17 @@ func runValidate(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  %s\n", err)
 		success = false
 	} else {
-		dtClient := dynatrace.NewClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.APIToken)
+		dtClient := newDTClient(cfg)
 		if err := dtClient.Validate(); err != nil {
 			color.Red("FAILED")
 			fmt.Printf("  %s\n", err)
 			success = false
 		} else {
-			color.Green("OK")
+			if dtClient.IsGen3() {
+				color.Green("OK (OAuth/Gen3)")
+			} else {
+				color.Green("OK")
+			}
 		}
 	}
 
@@ -194,7 +205,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		if err := cfg.ValidateDynatrace(); err != nil {
 			return fmt.Errorf("--validate requires Dynatrace credentials: %w", err)
 		}
-		dtValidateClient := dynatrace.NewClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.APIToken)
+		dtValidateClient := newDTClient(cfg)
 		fmt.Println("Validating metric selectors against Dynatrace API...")
 		valResult = dtValidateClient.ValidateAll(result)
 		printValidationSummary(valResult)
@@ -223,7 +234,7 @@ func runConvert(cmd *cobra.Command, args []string) error {
 		if err := cfg.ValidateDynatrace(); err != nil {
 			return err
 		}
-		dtClient := dynatrace.NewClient(cfg.Dynatrace.EnvURL, cfg.Dynatrace.APIToken)
+		dtClient := newDTClient(cfg)
 
 		if cfg.DryRun {
 			fmt.Println("\n--- DRY RUN ---")

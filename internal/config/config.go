@@ -36,8 +36,10 @@ type DataDogConfig struct {
 }
 
 type DynatraceConfig struct {
-	EnvURL   string `mapstructure:"env_url"`
-	APIToken string `mapstructure:"api_token"`
+	EnvURL       string `mapstructure:"env_url"`
+	APIToken     string `mapstructure:"api_token"`
+	ClientID     string `mapstructure:"client_id"`
+	ClientSecret string `mapstructure:"client_secret"`
 }
 
 func (c *Config) ValidateDataDog() error {
@@ -54,8 +56,17 @@ func (c *Config) ValidateDynatrace() error {
 	if c.Dynatrace.EnvURL == "" {
 		return fmt.Errorf("Dynatrace environment URL is required (--dt-env-url, config file, or DT_ENV_URL env var)")
 	}
-	if c.Dynatrace.APIToken == "" {
-		return fmt.Errorf("Dynatrace API token is required (--dt-api-token, config file, or DT_API_TOKEN env var)")
+	// Check for partial OAuth creds first (more specific error)
+	if c.Dynatrace.ClientID != "" && c.Dynatrace.ClientSecret == "" {
+		return fmt.Errorf("Dynatrace client secret is required when client ID is set (--dt-client-secret or DT_CLIENT_SECRET)")
+	}
+	if c.Dynatrace.ClientSecret != "" && c.Dynatrace.ClientID == "" {
+		return fmt.Errorf("Dynatrace client ID is required when client secret is set (--dt-client-id or DT_CLIENT_ID)")
+	}
+	hasToken := c.Dynatrace.APIToken != ""
+	hasOAuth := c.Dynatrace.ClientID != "" && c.Dynatrace.ClientSecret != ""
+	if !hasToken && !hasOAuth {
+		return fmt.Errorf("Dynatrace auth is required: set --dt-api-token (or DT_API_TOKEN) for token auth, or --dt-client-id and --dt-client-secret (or DT_CLIENT_ID/DT_CLIENT_SECRET) for OAuth")
 	}
 	return nil
 }
@@ -82,6 +93,8 @@ func BindFlags(cmd *cobra.Command) {
 	flags.String("dd-site", "datadoghq.com", "DataDog site")
 	flags.String("dt-env-url", "", "Dynatrace environment URL")
 	flags.String("dt-api-token", "", "Dynatrace API token")
+	flags.String("dt-client-id", "", "Dynatrace OAuth client ID (for Gen3/Platform)")
+	flags.String("dt-client-secret", "", "Dynatrace OAuth client secret (for Gen3/Platform)")
 
 	viper.BindPFlag("source", flags.Lookup("source"))
 	viper.BindPFlag("input_dir", flags.Lookup("input-dir"))
@@ -102,6 +115,8 @@ func BindFlags(cmd *cobra.Command) {
 	viper.BindPFlag("datadog.site", flags.Lookup("dd-site"))
 	viper.BindPFlag("dynatrace.env_url", flags.Lookup("dt-env-url"))
 	viper.BindPFlag("dynatrace.api_token", flags.Lookup("dt-api-token"))
+	viper.BindPFlag("dynatrace.client_id", flags.Lookup("dt-client-id"))
+	viper.BindPFlag("dynatrace.client_secret", flags.Lookup("dt-client-secret"))
 }
 
 func BindValidateFlags(cmd *cobra.Command) {
@@ -112,6 +127,8 @@ func BindValidateFlags(cmd *cobra.Command) {
 	flags.String("dd-site", "datadoghq.com", "DataDog site")
 	flags.String("dt-env-url", "", "Dynatrace environment URL")
 	flags.String("dt-api-token", "", "Dynatrace API token")
+	flags.String("dt-client-id", "", "Dynatrace OAuth client ID (for Gen3/Platform)")
+	flags.String("dt-client-secret", "", "Dynatrace OAuth client secret (for Gen3/Platform)")
 	flags.Bool("verbose", false, "Enable verbose output (info-level logging)")
 	flags.Bool("debug", false, "Enable debug output (debug-level logging)")
 
@@ -120,8 +137,26 @@ func BindValidateFlags(cmd *cobra.Command) {
 	viper.BindPFlag("datadog.site", flags.Lookup("dd-site"))
 	viper.BindPFlag("dynatrace.env_url", flags.Lookup("dt-env-url"))
 	viper.BindPFlag("dynatrace.api_token", flags.Lookup("dt-api-token"))
+	viper.BindPFlag("dynatrace.client_id", flags.Lookup("dt-client-id"))
+	viper.BindPFlag("dynatrace.client_secret", flags.Lookup("dt-client-secret"))
 	viper.BindPFlag("verbose", flags.Lookup("verbose"))
 	viper.BindPFlag("debug", flags.Lookup("debug"))
+}
+
+// envFallbacks applies environment variables only for keys not already set
+// by CLI flags or the config file. This enforces the documented precedence:
+// CLI flags > config file > environment variables > defaults.
+var envFallbacks = []struct {
+	key    string
+	envVar string
+}{
+	{"datadog.api_key", "DD_API_KEY"},
+	{"datadog.app_key", "DD_APP_KEY"},
+	{"datadog.site", "DD_SITE"},
+	{"dynatrace.env_url", "DT_ENV_URL"},
+	{"dynatrace.api_token", "DT_API_TOKEN"},
+	{"dynatrace.client_id", "DT_CLIENT_ID"},
+	{"dynatrace.client_secret", "DT_CLIENT_SECRET"},
 }
 
 func Load() (*Config, error) {
@@ -133,14 +168,6 @@ func Load() (*Config, error) {
 	viper.SetConfigName(".datadog2dynatrace")
 	viper.SetConfigType("yaml")
 	viper.AddConfigPath(home)
-
-	// Environment variable bindings
-	viper.SetEnvPrefix("")
-	viper.BindEnv("datadog.api_key", "DD_API_KEY")
-	viper.BindEnv("datadog.app_key", "DD_APP_KEY")
-	viper.BindEnv("datadog.site", "DD_SITE")
-	viper.BindEnv("dynatrace.env_url", "DT_ENV_URL")
-	viper.BindEnv("dynatrace.api_token", "DT_API_TOKEN")
 
 	// Defaults
 	viper.SetDefault("datadog.site", "datadoghq.com")
@@ -155,6 +182,15 @@ func Load() (*Config, error) {
 			// Only warn if config exists but can't be read
 			if _, statErr := os.Stat(filepath.Join(home, ".datadog2dynatrace.yaml")); statErr == nil {
 				return nil, fmt.Errorf("reading config file: %w", err)
+			}
+		}
+	}
+
+	// Apply env vars only as fallback (when not set by flags or config file).
+	for _, fb := range envFallbacks {
+		if !viper.IsSet(fb.key) {
+			if val := os.Getenv(fb.envVar); val != "" {
+				viper.Set(fb.key, val)
 			}
 		}
 	}

@@ -1021,3 +1021,278 @@ func TestFetchExistingNamesHandlesErrors(t *testing.T) {
 		t.Errorf("expected empty map on errors, got %d entries", len(names))
 	}
 }
+
+func TestDerivePlatformURL(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://abc12345.live.dynatrace.com", "https://abc12345.apps.dynatrace.com"},
+		{"https://umd17470.live.dynatrace.com", "https://umd17470.apps.dynatrace.com"},
+		{"https://custom.example.com", "https://custom.example.com"},
+	}
+	for _, tt := range tests {
+		got := derivePlatformURL(tt.input)
+		if got != tt.expected {
+			t.Errorf("derivePlatformURL(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestNewOAuthClient(t *testing.T) {
+	c := NewOAuthClient("https://abc12345.live.dynatrace.com/", "client-id", "client-secret")
+	if c.envURL != "https://abc12345.live.dynatrace.com" {
+		t.Errorf("expected trailing slash trimmed, got %q", c.envURL)
+	}
+	if !c.isGen3 {
+		t.Error("expected isGen3 to be true")
+	}
+	if c.platformURL != "https://abc12345.apps.dynatrace.com" {
+		t.Errorf("unexpected platformURL: %q", c.platformURL)
+	}
+	if c.auth.authType() != "oauth" {
+		t.Errorf("expected oauth auth type, got %q", c.auth.authType())
+	}
+}
+
+func TestIsGen3(t *testing.T) {
+	classic := NewClient("https://test.dynatrace.com", "tok")
+	if classic.IsGen3() {
+		t.Error("classic client should not be Gen3")
+	}
+
+	oauth := NewOAuthClient("https://test.live.dynatrace.com", "id", "secret")
+	if !oauth.IsGen3() {
+		t.Error("oauth client should be Gen3")
+	}
+}
+
+// testGen3Client creates a Gen3 test client with an OAuth mock that always succeeds.
+func testGen3Client(t *testing.T, envHandler, platformHandler http.HandlerFunc) (*Client, *httptest.Server, *httptest.Server) {
+	t.Helper()
+
+	// Token server
+	tokenSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"access_token":"test-oauth-token","expires_in":300,"token_type":"Bearer"}`))
+	}))
+	t.Cleanup(tokenSrv.Close)
+
+	// Env API server
+	envSrv := httptest.NewServer(envHandler)
+	t.Cleanup(envSrv.Close)
+
+	// Platform API server
+	platformSrv := httptest.NewServer(platformHandler)
+	t.Cleanup(platformSrv.Close)
+
+	c := newOAuthClientWithConfig(envSrv.URL, "test-client-id", "test-client-secret", fastConfig())
+	c.platformURL = platformSrv.URL
+	c.auth.(*oauthAuth).tokenURL = tokenSrv.URL
+
+	return c, envSrv, platformSrv
+}
+
+func TestGen3CreateDashboardRoutesToDocumentsAPI(t *testing.T) {
+	var gotPlatformPath string
+	var gotAuth string
+
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request to env server: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			gotPlatformPath = r.URL.Path
+			gotAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"id":"doc-1"}`))
+		},
+	)
+
+	d := &Dashboard{DashboardMetadata: DashboardMetadata{Name: "Gen3 Dashboard"}}
+	err := c.CreateDashboard(d)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPlatformPath != "/platform/document/v1/documents" {
+		t.Errorf("expected /platform/document/v1/documents, got %s", gotPlatformPath)
+	}
+	if !strings.HasPrefix(gotAuth, "Bearer ") {
+		t.Errorf("expected Bearer auth, got %q", gotAuth)
+	}
+}
+
+func TestGen3CreateMetricEventRoutesToSettings(t *testing.T) {
+	var gotPath string
+
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`[{"code":200}]`))
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			t.Errorf("unexpected request to platform server: %s %s", r.Method, r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		},
+	)
+
+	me := &MetricEvent{
+		Summary:        "High CPU",
+		MetricSelector: "builtin:host.cpu.usage",
+		Enabled:        true,
+		EventType:      "CUSTOM_ALERT",
+		MonitoringStrategy: MonitoringStrategy{
+			Type:      "STATIC_THRESHOLD",
+			Threshold: 90,
+		},
+	}
+	err := c.CreateMetricEvent(me)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/v2/settings/objects" {
+		t.Errorf("expected /api/v2/settings/objects, got %s", gotPath)
+	}
+}
+
+func TestGen3CreateMaintenanceRoutesToSettings(t *testing.T) {
+	var gotPath string
+
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`[{"code":200}]`))
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+	)
+
+	mw := &MaintenanceWindow{Name: "Deploy Window", Type: "PLANNED", Suppression: "DETECT_PROBLEMS_AND_ALERT"}
+	err := c.CreateMaintenanceWindow(mw)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/v2/settings/objects" {
+		t.Errorf("expected /api/v2/settings/objects, got %s", gotPath)
+	}
+}
+
+func TestGen3CreateNotificationRoutesToSettings(t *testing.T) {
+	var gotPath string
+
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`[{"code":200}]`))
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+	)
+
+	n := &NotificationIntegration{Name: "Slack", Type: "SLACK", Active: true, Config: map[string]interface{}{"url": "https://hooks.slack.com/test"}}
+	err := c.CreateNotification(n)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/v2/settings/objects" {
+		t.Errorf("expected /api/v2/settings/objects, got %s", gotPath)
+	}
+}
+
+func TestGen3ValidateUsesV2Time(t *testing.T) {
+	var gotPath string
+
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			gotPath = r.URL.Path
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"time":1234567890}`))
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+	)
+
+	err := c.Validate()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/api/v2/time" {
+		t.Errorf("expected /api/v2/time for Gen3, got %s", gotPath)
+	}
+}
+
+func TestGen3ListDashboardNames(t *testing.T) {
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"documents":[{"name":"Doc A"},{"name":"Doc B"}]}`))
+		},
+	)
+
+	names, err := c.ListDashboardNames()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(names) != 2 || names[0] != "Doc A" || names[1] != "Doc B" {
+		t.Errorf("unexpected names: %v", names)
+	}
+}
+
+func TestGen3ListMetricEventSummaries(t *testing.T) {
+	c, _, _ := testGen3Client(t,
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"items":[{"value":{"title":"Alert A"}},{"value":{"title":"Alert B"}}]}`))
+		},
+		func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		},
+	)
+
+	names, err := c.ListMetricEventSummaries()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(names) != 2 || names[0] != "Alert A" {
+		t.Errorf("unexpected names: %v", names)
+	}
+}
+
+func TestMapEventType(t *testing.T) {
+	tests := []struct{ in, out string }{
+		{"CUSTOM_ALERT", "CUSTOM_ALERT"},
+		{"ERROR", "ERROR_EVENT"},
+		{"INFO", "CUSTOM_INFO"},
+		{"UNKNOWN", "CUSTOM_ALERT"},
+	}
+	for _, tt := range tests {
+		got := mapEventType(tt.in)
+		if got != tt.out {
+			t.Errorf("mapEventType(%q) = %q, want %q", tt.in, got, tt.out)
+		}
+	}
+}
+
+func TestMapModelType(t *testing.T) {
+	tests := []struct{ in, out string }{
+		{"STATIC_THRESHOLD", "STATIC"},
+		{"AUTO_ADAPTIVE", "AUTO_ADAPTIVE"},
+		{"UNKNOWN", "STATIC"},
+	}
+	for _, tt := range tests {
+		got := mapModelType(tt.in)
+		if got != tt.out {
+			t.Errorf("mapModelType(%q) = %q, want %q", tt.in, got, tt.out)
+		}
+	}
+}

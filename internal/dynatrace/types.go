@@ -323,3 +323,92 @@ type ConversionResult struct {
 	Notifications  []NotificationIntegration
 	Notebooks      []DynatraceNotebook
 }
+
+// DocumentRequest is the payload for the Gen3 Documents API.
+type DocumentRequest struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Content string `json:"content"`
+	IsPrivate bool `json:"isPrivate"`
+}
+
+// SettingsObjectCreate is the wrapper for Settings 2.0 API objects.
+type SettingsObjectCreate struct {
+	SchemaID      string      `json:"schemaId"`
+	SchemaVersion string      `json:"schemaVersion,omitempty"`
+	Scope         string      `json:"scope"`
+	Value         interface{} `json:"value"`
+}
+
+// DavisAnomalyDetector maps to the builtin:davis.anomaly-detectors value schema.
+type DavisAnomalyDetector struct {
+	Title           string                   `json:"title"`
+	Description     string                   `json:"description,omitempty"`
+	Enabled         bool                     `json:"enabled"`
+	EventTemplate   DavisEventTemplate       `json:"eventTemplate"`
+	Analyzer        DavisAnalyzerConfig      `json:"analyzer"`
+	QueryDefinition DavisQueryDefinition     `json:"queryDefinition"`
+}
+
+// DavisEventTemplate defines the event properties for an anomaly detector.
+type DavisEventTemplate struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	EventType   string `json:"eventType"`
+	DavisMerge  bool   `json:"davisMerge"`
+}
+
+// DavisAnalyzerConfig defines the analyzer for an anomaly detector.
+type DavisAnalyzerConfig struct {
+	Input []DavisAnalyzerInput `json:"input"`
+}
+
+// DavisAnalyzerInput defines input for the analyzer.
+type DavisAnalyzerInput struct {
+	Name        string                    `json:"name"`
+	AnalyzerDef DavisAnalyzerDefinition   `json:"analyzerDef,omitempty"`
+}
+
+// DavisAnalyzerDefinition specifies the threshold type and parameters.
+type DavisAnalyzerDefinition struct {
+	Type                string  `json:"type"`
+	Threshold           float64 `json:"threshold,omitempty"`
+	AlertCondition      string  `json:"alertCondition,omitempty"`
+	Samples             int     `json:"samples,omitempty"`
+	ViolatingSamples    int     `json:"violatingSamples,omitempty"`
+	DealertingSamples   int     `json:"dealertingSamples,omitempty"`
+}
+
+// DavisQueryDefinition defines the metric query for an anomaly detector.
+type DavisQueryDefinition struct {
+	Type           string `json:"type"`
+	MetricSelector string `json:"metricSelector,omitempty"`
+}
+
+// MaintenanceWindowSetting maps to builtin:alerting.maintenance-window value schema.
+type MaintenanceWindowSetting struct {
+	Name            string `json:"name"`
+	Description     string `json:"description,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	Type            string `json:"type"`
+	Suppression     string `json:"suppression"`
+	GeneralProperties MaintenanceGeneralProperties `json:"generalProperties"`
+}
+
+// MaintenanceGeneralProperties holds schedule info for a maintenance window setting.
+type MaintenanceGeneralProperties struct {
+	DisableSyntheticMonitoring bool   `json:"disableSyntheticMonitoring"`
+	MaintenanceType            string `json:"maintenanceType"`
+	Recurrence                 string `json:"recurrence"`
+	StartTime                  string `json:"startTime,omitempty"`
+	EndTime                    string `json:"endTime,omitempty"`
+	ZoneID                     string `json:"zoneId,omitempty"`
+}
+
+// NotificationSetting maps to builtin:problem.notifications value schema.
+type NotificationSetting struct {
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	Active  bool   `json:"active"`
+	Config  map[string]interface{} `json:"config"`
+}
