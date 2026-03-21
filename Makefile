@@ -2,7 +2,7 @@ BINARY_NAME=datadog2dynatrace
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X github.com/datadog2dynatrace/datadog2dynatrace/internal/config.Version=$(VERSION)"
 
-.PHONY: build clean test lint install
+.PHONY: build clean test lint install all
 
 build:
 	go build $(LDFLAGS) -o bin/$(BINARY_NAME) ./cmd/datadog2dynatrace

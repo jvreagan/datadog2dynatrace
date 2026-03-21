@@ -40,11 +40,13 @@ The most complex subsystem, handling DD query language → DT metric selector/DQ
 - `parser.go` — Parses DD queries into structured AST
 - `translator.go` — Converts parsed queries to DT metric selectors or DQL
 - `functions.go` — Maps DD aggregation/rollup functions to DT equivalents
+- `formula.go` — Evaluates DD formula expressions combining multi-query widgets
 
 ### 5. Output (internal/dynatrace/, internal/terraform/)
-Two output modes:
+Three output modes:
 - **Dynatrace API** (`internal/dynatrace/client.go`): Direct push via REST API
 - **Terraform** (`internal/terraform/`): Generates HCL files per resource type
+- **JSON** (`internal/dynatrace/`): Serializes converted resources to JSON for inspection
 
 ### 6. Reporting (internal/report/)
 Generates a Markdown migration report with extraction summary, conversion summary, and any errors.

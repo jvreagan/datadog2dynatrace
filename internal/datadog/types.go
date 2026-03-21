@@ -1,6 +1,43 @@
 package datadog
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
+
+// FlexTime handles Datadog timestamps that may be JSON strings (RFC3339)
+// or numeric Unix timestamps (seconds or milliseconds).
+type FlexTime struct {
+	time.Time
+}
+
+func (ft *FlexTime) UnmarshalJSON(data []byte) error {
+	// Try string first (RFC3339).
+	var s string
+	if err := json.Unmarshal(data, &s); err == nil {
+		t, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			// Try alternate format with explicit offset.
+			t, err = time.Parse("2006-01-02T15:04:05.000000-07:00", s)
+			if err != nil {
+				return err
+			}
+		}
+		ft.Time = t
+		return nil
+	}
+	// Try numeric (Unix seconds or milliseconds).
+	var n int64
+	if err := json.Unmarshal(data, &n); err == nil {
+		if n > 1e12 {
+			ft.Time = time.Unix(0, n*int64(time.Millisecond))
+		} else {
+			ft.Time = time.Unix(n, 0)
+		}
+		return nil
+	}
+	return nil
+}
 
 // Dashboard represents a DataDog dashboard.
 type Dashboard struct {
@@ -10,8 +47,8 @@ type Dashboard struct {
 	LayoutType  string           `json:"layout_type"` // "ordered" or "free"
 	Widgets     []Widget         `json:"widgets"`
 	TemplateVars []TemplateVar   `json:"template_variables,omitempty"`
-	CreatedAt   time.Time        `json:"created_at,omitempty"`
-	ModifiedAt  time.Time        `json:"modified_at,omitempty"`
+	CreatedAt   FlexTime         `json:"created_at,omitempty"`
+	ModifiedAt  FlexTime         `json:"modified_at,omitempty"`
 }
 
 type Widget struct {
@@ -140,8 +177,8 @@ type Monitor struct {
 	Tags            []string       `json:"tags"`
 	Options         MonitorOptions `json:"options"`
 	OverallState    string         `json:"overall_state,omitempty"`
-	CreatedAt       time.Time      `json:"created_at,omitempty"`
-	ModifiedAt      time.Time      `json:"modified_at,omitempty"`
+	CreatedAt       FlexTime       `json:"created_at,omitempty"`
+	ModifiedAt      FlexTime       `json:"modified_at,omitempty"`
 }
 
 type MonitorOptions struct {
@@ -320,8 +357,8 @@ type Notebook struct {
 	Author   NotebookAuthor `json:"author,omitempty"`
 	Cells    []NotebookCell `json:"cells"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	Created  time.Time      `json:"created,omitempty"`
-	Modified time.Time      `json:"modified,omitempty"`
+	Created  FlexTime       `json:"created,omitempty"`
+	Modified FlexTime       `json:"modified,omitempty"`
 }
 
 type NotebookAuthor struct {

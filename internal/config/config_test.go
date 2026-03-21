@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"strings"
 	"testing"
 
@@ -156,6 +155,7 @@ func TestBindValidateFlags(t *testing.T) {
 
 func TestLoadDefaults(t *testing.T) {
 	viper.Reset()
+	t.Setenv("HOME", t.TempDir())
 
 	// Load with no config file — should succeed with defaults
 	cfg, err := Load()
@@ -184,17 +184,11 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadFromEnv(t *testing.T) {
 	viper.Reset()
-
-	os.Setenv("DD_API_KEY", "env-api-key")
-	os.Setenv("DD_APP_KEY", "env-app-key")
-	os.Setenv("DT_ENV_URL", "https://env.dynatrace.com")
-	os.Setenv("DT_API_TOKEN", "env-token")
-	defer func() {
-		os.Unsetenv("DD_API_KEY")
-		os.Unsetenv("DD_APP_KEY")
-		os.Unsetenv("DT_ENV_URL")
-		os.Unsetenv("DT_API_TOKEN")
-	}()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DD_API_KEY", "env-api-key")
+	t.Setenv("DD_APP_KEY", "env-app-key")
+	t.Setenv("DT_ENV_URL", "https://env.dynatrace.com")
+	t.Setenv("DT_API_TOKEN", "env-token")
 
 	cfg, err := Load()
 	if err != nil {

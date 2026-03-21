@@ -3,7 +3,6 @@ package datadog
 import (
 	"encoding/json"
 	"fmt"
-	"time"
 )
 
 // GetNotebooks retrieves all notebooks.
@@ -40,6 +39,6 @@ type NotebookAttributes struct {
 	Name     string         `json:"name"`
 	Author   NotebookAuthor `json:"author"`
 	Cells    []NotebookCell `json:"cells"`
-	Created  time.Time      `json:"created"`
-	Modified time.Time      `json:"modified"`
+	Created  FlexTime       `json:"created"`
+	Modified FlexTime       `json:"modified"`
 }
