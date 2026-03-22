@@ -918,20 +918,25 @@ func TestPutSuccess(t *testing.T) {
 	}
 }
 
-func TestToNameSet(t *testing.T) {
-	s := toNameSet([]string{"a", "b", "c"})
-	if !s["a"] || !s["b"] || !s["c"] {
-		t.Error("expected all names in set")
+func TestToNameIDMap(t *testing.T) {
+	resources := []NamedResource{
+		{ID: "id-a", Name: "a"},
+		{ID: "id-b", Name: "b"},
+		{ID: "id-c", Name: "c"},
 	}
-	if s["d"] {
-		t.Error("unexpected name in set")
+	m := toNameIDMap(resources)
+	if m["a"] != "id-a" || m["b"] != "id-b" || m["c"] != "id-c" {
+		t.Error("expected all names with correct IDs")
+	}
+	if _, ok := m["d"]; ok {
+		t.Error("unexpected name in map")
 	}
 }
 
-func TestToNameSetEmpty(t *testing.T) {
-	s := toNameSet(nil)
-	if len(s) != 0 {
-		t.Errorf("expected empty set, got %d", len(s))
+func TestToNameIDMapEmpty(t *testing.T) {
+	m := toNameIDMap(nil)
+	if len(m) != 0 {
+		t.Errorf("expected empty map, got %d", len(m))
 	}
 }
 
@@ -1010,15 +1015,15 @@ func TestPushAllMultipleErrorTypes(t *testing.T) {
 	}
 }
 
-func TestFetchExistingNamesHandlesErrors(t *testing.T) {
+func TestFetchExistingResourcesHandlesErrors(t *testing.T) {
 	c, _ := testClient(t, func(w http.ResponseWriter, r *http.Request) {
 		// All list endpoints fail
 		w.WriteHeader(http.StatusInternalServerError)
 	})
-	names := c.fetchExistingNames()
+	resources := c.fetchExistingResources()
 	// Should return an empty map (no error propagation, just empty)
-	if len(names) != 0 {
-		t.Errorf("expected empty map on errors, got %d entries", len(names))
+	if len(resources) != 0 {
+		t.Errorf("expected empty map on errors, got %d entries", len(resources))
 	}
 }
 
@@ -1283,16 +1288,3 @@ func TestMapEventType(t *testing.T) {
 	}
 }
 
-func TestMapModelType(t *testing.T) {
-	tests := []struct{ in, out string }{
-		{"STATIC_THRESHOLD", "STATIC"},
-		{"AUTO_ADAPTIVE", "AUTO_ADAPTIVE"},
-		{"UNKNOWN", "STATIC"},
-	}
-	for _, tt := range tests {
-		got := mapModelType(tt.in)
-		if got != tt.out {
-			t.Errorf("mapModelType(%q) = %q, want %q", tt.in, got, tt.out)
-		}
-	}
-}

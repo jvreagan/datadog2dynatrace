@@ -1830,6 +1830,63 @@ func TestConvertMonitor(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "formula query 100-idle maps to cpu.user",
+			input: &datadog.Monitor{
+				Name:  "CPU usage is high",
+				Type:  "metric alert",
+				Query: "avg(last_5m):100 - avg:system.cpu.idle{*} by {host} > 90",
+				Options: datadog.MonitorOptions{
+					Thresholds: &datadog.Thresholds{
+						Critical: &critical,
+					},
+				},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if !strings.Contains(me.MetricSelector, "builtin:host.cpu.user") {
+					t.Errorf("expected builtin:host.cpu.user in metric selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.MetricSelector, `"dt.entity.host"`) {
+					t.Errorf("expected splitBy dt.entity.host, got %q", me.MetricSelector)
+				}
+			},
+		},
+		{
+			name: "formula query (1-disk.free) maps to disk.in_use",
+			input: &datadog.Monitor{
+				Name:  "Disk usage is high",
+				Type:  "metric alert",
+				Query: "avg(last_5m):(1 - avg:system.disk.free{!device:/dev/loop*}) by {device,host} > 0.9",
+				Options: datadog.MonitorOptions{
+					Thresholds: &datadog.Thresholds{
+						Critical: &critical50,
+					},
+				},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if !strings.Contains(me.MetricSelector, "builtin:host.disk.usedPct") {
+					t.Errorf("expected builtin:host.disk.usedPct in metric selector, got %q", me.MetricSelector)
+				}
+			},
+		},
+		{
+			name: "forecast formula query maps to disk.usedPct",
+			input: &datadog.Monitor{
+				Name:  "Disk usage forecast",
+				Type:  "metric alert",
+				Query: `max(next_3d):forecast((1 - avg:system.disk.free{*} by {host,device} / avg:system.disk.total{*} by {host,device}) * 100, "seasonal", 1, interval="60m", seasonality="weekly") >= 99`,
+				Options: datadog.MonitorOptions{
+					Thresholds: &datadog.Thresholds{
+						Critical: &critical50,
+					},
+				},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if !strings.Contains(me.MetricSelector, "builtin:host.disk.usedPct") {
+					t.Errorf("expected builtin:host.disk.usedPct in metric selector, got %q", me.MetricSelector)
+				}
+			},
+		},
 	}
 
 	for _, tt := range tests {

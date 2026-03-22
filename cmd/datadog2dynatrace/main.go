@@ -242,9 +242,13 @@ func runConvert(cmd *cobra.Command, args []string) error {
 			fmt.Println("No changes were made.")
 		} else {
 			fmt.Println("Pushing resources to Dynatrace...")
-			pushErrors = dtClient.PushAllWithOptions(result, dynatrace.PushOptions{
+			opts := dynatrace.PushOptions{
 				SkipExisting: cfg.SkipExisting,
-			})
+			}
+			if !cfg.SkipExisting {
+				opts.ConflictResolver = ui.PromptConflictResolver()
+			}
+			pushErrors = dtClient.PushAllWithOptions(result, opts)
 		}
 
 	case "json":

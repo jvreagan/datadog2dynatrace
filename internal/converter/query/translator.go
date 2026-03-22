@@ -428,6 +428,23 @@ func TranslateMetricName(ddMetric string) string {
 	return "ext:custom." + strings.ReplaceAll(ddMetric, ":", ".")
 }
 
+// ComplementMetric returns the positive equivalent of a DD metric that is typically
+// used in complement formulas like "100 - metric" or "1 - metric".
+// Returns "" if no complement mapping is known.
+func ComplementMetric(ddMetric string) string {
+	complements := map[string]string{
+		"system.cpu.idle":       "system.cpu.user",
+		"system.disk.free":      "system.disk.in_use",
+		"system.mem.free":       "system.mem.used",
+		"system.mem.pct_usable": "system.mem.used",
+		"system.swap.free":      "system.swap.used",
+	}
+	if c, ok := complements[ddMetric]; ok {
+		return c
+	}
+	return ""
+}
+
 // TranslateAggregation converts a DD aggregation to DT equivalent.
 func TranslateAggregation(ddAgg string) string {
 	return MapAggregation(ddAgg)

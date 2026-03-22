@@ -1,5 +1,25 @@
 package dynatrace
 
+// NamedResource pairs a resource ID with its human-readable name.
+type NamedResource struct {
+	ID   string
+	Name string
+}
+
+// ConflictAction represents what to do when a resource already exists in Dynatrace.
+type ConflictAction int
+
+const (
+	// ConflictSkip keeps the existing resource and does not create a new one.
+	ConflictSkip ConflictAction = iota
+	// ConflictReplace deletes the existing resource and creates a new one.
+	ConflictReplace
+)
+
+// ConflictResolver is called when a resource already exists in Dynatrace.
+// Returns ConflictSkip to keep the existing resource, or ConflictReplace to delete and re-create it.
+type ConflictResolver func(resourceType, name string) ConflictAction
+
 // Dashboard represents a Dynatrace dashboard.
 type Dashboard struct {
 	ID                string            `json:"id,omitempty"`
@@ -342,47 +362,41 @@ type SettingsObjectCreate struct {
 
 // DavisAnomalyDetector maps to the builtin:davis.anomaly-detectors value schema.
 type DavisAnomalyDetector struct {
-	Title           string                   `json:"title"`
-	Description     string                   `json:"description,omitempty"`
-	Enabled         bool                     `json:"enabled"`
-	EventTemplate   DavisEventTemplate       `json:"eventTemplate"`
-	Analyzer        DavisAnalyzerConfig      `json:"analyzer"`
-	QueryDefinition DavisQueryDefinition     `json:"queryDefinition"`
+	Title             string                 `json:"title"`
+	Description       string                 `json:"description"`
+	Enabled           bool                   `json:"enabled"`
+	Source            string                 `json:"source"`
+	ExecutionSettings DavisExecutionSettings `json:"executionSettings"`
+	Analyzer          DavisAnalyzerInput     `json:"analyzer"`
+	EventTemplate     DavisEventTemplate     `json:"eventTemplate"`
 }
 
-// DavisEventTemplate defines the event properties for an anomaly detector.
+// DavisExecutionSettings configures execution context for an anomaly detector.
+type DavisExecutionSettings struct {
+	Actor *string `json:"actor"`
+}
+
+// DavisEventTemplate holds custom key-value properties for triggered events.
 type DavisEventTemplate struct {
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	EventType   string `json:"eventType"`
-	DavisMerge  bool   `json:"davisMerge"`
+	Properties []DavisEventProperty `json:"properties"`
 }
 
-// DavisAnalyzerConfig defines the analyzer for an anomaly detector.
-type DavisAnalyzerConfig struct {
-	Input []DavisAnalyzerInput `json:"input"`
+// DavisEventProperty is a single key-value pair in an event template.
+type DavisEventProperty struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
-// DavisAnalyzerInput defines input for the analyzer.
+// DavisAnalyzerInput specifies the analyzer name and its key-value input fields.
 type DavisAnalyzerInput struct {
-	Name        string                    `json:"name"`
-	AnalyzerDef DavisAnalyzerDefinition   `json:"analyzerDef,omitempty"`
+	Name  string             `json:"name"`
+	Input []DavisAnalyzerField `json:"input"`
 }
 
-// DavisAnalyzerDefinition specifies the threshold type and parameters.
-type DavisAnalyzerDefinition struct {
-	Type                string  `json:"type"`
-	Threshold           float64 `json:"threshold,omitempty"`
-	AlertCondition      string  `json:"alertCondition,omitempty"`
-	Samples             int     `json:"samples,omitempty"`
-	ViolatingSamples    int     `json:"violatingSamples,omitempty"`
-	DealertingSamples   int     `json:"dealertingSamples,omitempty"`
-}
-
-// DavisQueryDefinition defines the metric query for an anomaly detector.
-type DavisQueryDefinition struct {
-	Type           string `json:"type"`
-	MetricSelector string `json:"metricSelector,omitempty"`
+// DavisAnalyzerField is a single key-value input field for an analyzer.
+type DavisAnalyzerField struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 // MaintenanceWindowSetting maps to builtin:alerting.maintenance-window value schema.

@@ -79,7 +79,7 @@ func BindFlags(cmd *cobra.Command) {
 	flags.String("target", "terraform", "Output target: api, terraform, or json")
 	flags.String("output-dir", "./dynatrace-terraform/", "Terraform output directory")
 	flags.Bool("dry-run", false, "Preview without pushing")
-	flags.Bool("skip-existing", true, "Skip resources that already exist in Dynatrace")
+	flags.Bool("skip-existing", false, "Silently skip resources that already exist (default: prompt)")
 	flags.Bool("fail-fast", false, "Stop on first error")
 	flags.Bool("all", false, "Convert all resources (skip selection)")
 	flags.String("report-file", "./migration-report.md", "Migration report path")
@@ -175,7 +175,7 @@ func Load() (*Config, error) {
 	viper.SetDefault("target", "terraform")
 	viper.SetDefault("output_dir", "./dynatrace-terraform/")
 	viper.SetDefault("report_file", "./migration-report.md")
-	viper.SetDefault("skip_existing", true)
+	viper.SetDefault("skip_existing", false)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {

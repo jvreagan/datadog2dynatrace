@@ -214,6 +214,12 @@ func parseMonitorQuery(dd *datadog.Monitor) (metricSelector string, alertConditi
 		q = q[idx+2:]
 	}
 
+	// Preprocess formula expressions (e.g., "100 - cpu.idle", "(1 - disk.free)")
+	if preprocessed, ok := preprocessFormulaQuery(q); ok {
+		logging.Debug("formula query preprocessed: %q -> %q", q, preprocessed)
+		q = preprocessed
+	}
+
 	// Parse the remaining metric query
 	logging.Debug("parsing monitor query: %s", q)
 	parsed, err := query.Parse(q)
@@ -224,6 +230,96 @@ func parseMonitorQuery(dd *datadog.Monitor) (metricSelector string, alertConditi
 
 	metricSelector = query.ToMetricSelector(parsed)
 	return metricSelector, alertCondition, threshold
+}
+
+// preprocessFormulaQuery handles common DD formula patterns by substituting complement
+// metrics. Returns (processed, true) if a substitution was made.
+//
+// Handles:
+//   - "100 - avg:metric.idle{filters} by {groupby}" → "avg:metric.user{filters} by {groupby}"
+//   - "(1 - avg:metric.free{filters}) by {groupby}" → "avg:metric.in_use{filters} by {groupby}"
+//   - "forecast(<formula>, ...)" → strips forecast wrapper and applies above rules
+func preprocessFormulaQuery(q string) (string, bool) {
+	q = strings.TrimSpace(q)
+
+	// Pattern: "forecast(<formula>, ...)" — DD predictive monitor; strip the wrapper
+	// and preprocess the underlying metric formula.
+	if strings.HasPrefix(q, "forecast(") {
+		inner := extractFirstTopLevelArg(q[len("forecast("):])
+		if inner != "" {
+			if preprocessed, ok := preprocessFormulaQuery(inner); ok {
+				return preprocessed, true
+			}
+			// No substitution but we still drop the forecast wrapper
+			return inner, true
+		}
+	}
+
+	// Pattern: "100 - <inner_query>"
+	if strings.HasPrefix(q, "100 - ") || strings.HasPrefix(q, "100 -") {
+		dashIdx := strings.Index(q, "-")
+		inner := strings.TrimSpace(q[dashIdx+1:])
+		if subst := complementSubstitute(inner); subst != "" {
+			return subst, true
+		}
+	}
+
+	// Pattern: "(1 - <inner_query>) [by {groupby}]"
+	if strings.HasPrefix(q, "(1 - ") || strings.HasPrefix(q, "(1-") {
+		closeIdx := strings.LastIndex(q, ")")
+		if closeIdx > 0 {
+			dashIdx := strings.Index(q, "-")
+			inner := strings.TrimSpace(q[dashIdx+1 : closeIdx])
+			byPart := strings.TrimSpace(q[closeIdx+1:])
+			if subst := complementSubstitute(inner); subst != "" {
+				// Only append byPart if it looks like a "by {groupby}" clause
+				if byPart != "" && (strings.HasPrefix(byPart, "by {") || strings.HasPrefix(byPart, "by{")) {
+					return subst + " " + byPart, true
+				}
+				return subst, true
+			}
+		}
+	}
+
+	return q, false
+}
+
+// extractFirstTopLevelArg returns the first comma-separated argument at depth 0
+// from a function call's argument list (the string after the opening paren).
+// Depth is tracked for both () and {} brackets.
+func extractFirstTopLevelArg(s string) string {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(', '{':
+			depth++
+		case ')', '}':
+			if depth == 0 {
+				// Reached the closing paren of the outer function — return remainder
+				return strings.TrimSpace(s[:i])
+			}
+			depth--
+		case ',':
+			if depth == 0 {
+				return strings.TrimSpace(s[:i])
+			}
+		}
+	}
+	return strings.TrimSpace(s)
+}
+
+// complementSubstitute parses an inner metric query, looks up its complement metric,
+// and returns a new query string with the complement substituted in.
+func complementSubstitute(inner string) string {
+	pq, err := query.Parse(inner)
+	if err != nil {
+		return ""
+	}
+	complement := query.ComplementMetric(pq.Metric)
+	if complement == "" {
+		return ""
+	}
+	return strings.Replace(inner, pq.Metric, complement, 1)
 }
 
 func mapMonitorSeverity(ddType string) string {

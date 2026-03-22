@@ -46,7 +46,7 @@ type oauthAuth struct {
 
 const (
 	defaultTokenURL = "https://sso.dynatrace.com/sso/oauth2/token"
-	oauthScopes     = "document:documents:write document:documents:read settings:objects:write settings:objects:read settings:schemas:read"
+	oauthScopes     = "document:documents:write document:documents:read settings:objects:write settings:objects:read settings:schemas:read storage:metrics:read storage:logs:read storage:events:read"
 )
 
 func newOAuthAuth(clientID, clientSecret string, httpClient *http.Client) *oauthAuth {

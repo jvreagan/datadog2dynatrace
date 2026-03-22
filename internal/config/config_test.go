@@ -123,8 +123,8 @@ func TestBindFlags(t *testing.T) {
 	if v, _ := cmd.Flags().GetBool("dry-run"); v != false {
 		t.Error("dry-run should default to false")
 	}
-	if v, _ := cmd.Flags().GetBool("skip-existing"); v != true {
-		t.Error("skip-existing should default to true")
+	if v, _ := cmd.Flags().GetBool("skip-existing"); v != false {
+		t.Error("skip-existing should default to false")
 	}
 }
 
@@ -174,8 +174,8 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.ReportFile != "./migration-report.md" {
 		t.Errorf("report_file default: got %q, want %q", cfg.ReportFile, "./migration-report.md")
 	}
-	if !cfg.SkipExisting {
-		t.Error("skip_existing should default to true")
+	if cfg.SkipExisting {
+		t.Error("skip_existing should default to false")
 	}
 	if cfg.DataDog.Site != "datadoghq.com" {
 		t.Errorf("datadog.site default: got %q, want %q", cfg.DataDog.Site, "datadoghq.com")
