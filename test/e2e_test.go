@@ -33,8 +33,8 @@ func TestEndToEndPipeline(t *testing.T) {
 	if len(ext.Monitors) != 6 {
 		t.Errorf("expected 6 monitors, got %d", len(ext.Monitors))
 	}
-	if len(ext.SLOs) != 2 {
-		t.Errorf("expected 2 SLOs, got %d", len(ext.SLOs))
+	if len(ext.SLOs) != 3 {
+		t.Errorf("expected 3 SLOs, got %d", len(ext.SLOs))
 	}
 	if len(ext.Synthetics) != 2 {
 		t.Errorf("expected 2 synthetics, got %d", len(ext.Synthetics))
@@ -781,6 +781,147 @@ func TestEndToEndValidation(t *testing.T) {
 	}
 }
 
+// TestEndToEndSLOMultiThreshold verifies that a 3-threshold SLO produces 3 DT SLOs
+// with correct suffixed names, targets, and timeframes.
+func TestEndToEndSLOMultiThreshold(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	// Find the 3-threshold SLO
+	found := false
+	for _, s := range ext.SLOs {
+		if s.Name == "Checkout API Availability" {
+			found = true
+			if len(s.Thresholds) != 3 {
+				t.Fatalf("expected 3 thresholds in fixture, got %d", len(s.Thresholds))
+			}
+		}
+	}
+	if !found {
+		t.Fatal("multi-threshold SLO fixture not found in testdata/slos.json")
+	}
+
+	conv := converter.New(converter.Options{})
+	result, errs := conv.ConvertAll(ext)
+	for _, e := range errs {
+		t.Logf("conversion warning: %v", e)
+	}
+
+	// Collect just the Checkout API SLOs
+	var checkoutSLOs []dynatrace.SLO
+	for _, s := range result.SLOs {
+		if strings.Contains(s.Name, "Checkout API Availability") {
+			checkoutSLOs = append(checkoutSLOs, s)
+		}
+	}
+
+	if len(checkoutSLOs) != 3 {
+		t.Fatalf("expected 3 Checkout API SLOs, got %d", len(checkoutSLOs))
+	}
+
+	// Verify each threshold produces a correctly suffixed + configured SLO
+	wantNames := []string{
+		"Checkout API Availability (7d)",
+		"Checkout API Availability (30d)",
+		"Checkout API Availability (90d)",
+	}
+	wantTargets := []float64{99.9, 99.5, 99.0}
+	wantTimeframes := []string{"-1w", "-1M", "-3M"}
+
+	byName := make(map[string]dynatrace.SLO)
+	for _, s := range checkoutSLOs {
+		byName[s.Name] = s
+	}
+
+	for i, name := range wantNames {
+		s, ok := byName[name]
+		if !ok {
+			t.Errorf("missing SLO %q", name)
+			continue
+		}
+		if s.Target != wantTargets[i] {
+			t.Errorf("%q target: got %f, want %f", name, s.Target, wantTargets[i])
+		}
+		if s.Timeframe != wantTimeframes[i] {
+			t.Errorf("%q timeframe: got %q, want %q", name, s.Timeframe, wantTimeframes[i])
+		}
+		if s.MetricExpression == "" {
+			t.Errorf("%q has empty metric expression", name)
+		}
+	}
+}
+
+// TestEndToEndBrowserSynthetic verifies a browser synthetic fixture is converted
+// to Type=BROWSER with a navigate event + configured step events.
+func TestEndToEndBrowserSynthetic(t *testing.T) {
+	ext, err := importer.ImportFromDirectory(filepath.Join("testdata", "realistic"))
+	if err != nil {
+		t.Fatalf("import failed: %v", err)
+	}
+
+	// Find the browser synthetic
+	found := false
+	for _, s := range ext.Synthetics {
+		if s.PublicID == "syn-real-002" {
+			found = true
+			if s.Type != "browser" {
+				t.Errorf("fixture type: got %q, want browser", s.Type)
+			}
+			if len(s.Config.Steps) != 3 {
+				t.Errorf("expected 3 steps in fixture, got %d", len(s.Config.Steps))
+			}
+		}
+	}
+	if !found {
+		t.Fatal("browser synthetic fixture not found in testdata/realistic/synthetics.json")
+	}
+
+	conv := converter.New(converter.Options{})
+	result, errs := conv.ConvertAll(ext)
+	for _, e := range errs {
+		t.Logf("conversion warning: %v", e)
+	}
+
+	var browserSynth *dynatrace.SyntheticMonitor
+	for i := range result.Synthetics {
+		if result.Synthetics[i].Name == "Realistic Login Flow" {
+			browserSynth = &result.Synthetics[i]
+			break
+		}
+	}
+	if browserSynth == nil {
+		t.Fatal("Realistic Login Flow not found in converted synthetics")
+	}
+
+	if browserSynth.Type != "BROWSER" {
+		t.Errorf("Type: got %q, want BROWSER", browserSynth.Type)
+	}
+	if browserSynth.Script == nil {
+		t.Fatal("expected Script to be set")
+	}
+
+	// navigate + click + keystrokes + javascript(assertElementPresent) = 4 events
+	if len(browserSynth.Script.Events) < 2 {
+		t.Fatalf("expected at least 2 script events, got %d", len(browserSynth.Script.Events))
+	}
+	if browserSynth.Script.Events[0].Type != "navigate" {
+		t.Errorf("first event: got %q, want navigate", browserSynth.Script.Events[0].Type)
+	}
+
+	hasClick := false
+	for _, e := range browserSynth.Script.Events {
+		if e.Type == "click" {
+			hasClick = true
+			break
+		}
+	}
+	if !hasClick {
+		t.Error("expected at least one click event in browser script")
+	}
+}
+
 // TestEndToEndGrailDashboard verifies Grail mode produces DQL DATA_EXPLORER tiles.
 func TestEndToEndGrailDashboard(t *testing.T) {
 	ext, err := importer.ImportFromDirectory(filepath.Join("testdata"))
@@ -829,8 +970,8 @@ func TestEndToEndRealisticFixtures(t *testing.T) {
 	if len(ext.SLOs) != 1 {
 		t.Errorf("expected 1 SLO, got %d", len(ext.SLOs))
 	}
-	if len(ext.Synthetics) != 1 {
-		t.Errorf("expected 1 synthetic, got %d", len(ext.Synthetics))
+	if len(ext.Synthetics) != 2 {
+		t.Errorf("expected 2 synthetics, got %d", len(ext.Synthetics))
 	}
 
 	// Verify specific field values survived import despite extra API fields

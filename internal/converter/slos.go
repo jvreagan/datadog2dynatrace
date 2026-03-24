@@ -8,44 +8,65 @@ import (
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/dynatrace"
 )
 
-// ConvertSLO converts a DataDog SLO to a Dynatrace SLO.
-func ConvertSLO(dd *datadog.SLO) (*dynatrace.SLO, error) {
-	dt := &dynatrace.SLO{
-		Name:           dd.Name,
-		Description:    dd.Description,
-		EvaluationType: "AGGREGATE",
-		Enabled:        true,
-	}
+// ConvertSLO converts a DataDog SLO to one Dynatrace SLO per threshold.
+// If the SLO has multiple thresholds, each DT SLO is suffixed with the timeframe
+// (e.g. "API Availability (7d)"). A single threshold produces no suffix.
+func ConvertSLO(dd *datadog.SLO) ([]dynatrace.SLO, error) {
+	// Build the metric expression once — it's the same across all thresholds.
+	var metricExpr string
+	var descExtra string
 
-	// Map timeframe from first threshold
-	if len(dd.Thresholds) > 0 {
-		dt.Target = dd.Thresholds[0].Target
-		dt.Warning = dd.Thresholds[0].Warning
-		dt.Timeframe = mapSLOTimeframe(dd.Thresholds[0].Timeframe)
-	} else {
-		dt.Target = 99.0
-		dt.Warning = 99.5
-		dt.Timeframe = "-1M"
-	}
-
-	// Convert based on SLO type
 	switch dd.Type {
 	case "metric":
 		if dd.Query != nil {
 			numerator := translateSLOQuery(dd.Query.Numerator)
 			denominator := translateSLOQuery(dd.Query.Denominator)
-			dt.MetricExpression = fmt.Sprintf("(100)*(%s)/(%s)", numerator, denominator)
+			metricExpr = fmt.Sprintf("(100)*(%s)/(%s)", numerator, denominator)
 		}
 	case "monitor":
-		// Monitor-based SLOs don't have a direct DT equivalent with metric expressions
-		// We create a placeholder that needs manual configuration
-		dt.MetricExpression = "builtin:synthetic.browser.availability.location.totalPerformance"
-		dt.Description += "\n\n[Migration note: This was a monitor-based SLO in DataDog. The metric expression needs manual configuration.]"
+		metricExpr = "builtin:synthetic.browser.availability.location.totalPerformance"
+		descExtra = "\n\n[Migration note: This was a monitor-based SLO in DataDog. The metric expression needs manual configuration.]"
 	default:
 		return nil, fmt.Errorf("unsupported SLO type: %s", dd.Type)
 	}
 
-	return dt, nil
+	// No thresholds: produce a single SLO with defaults.
+	if len(dd.Thresholds) == 0 {
+		slo := dynatrace.SLO{
+			Name:             dd.Name,
+			Description:      dd.Description + descExtra,
+			EvaluationType:   "AGGREGATE",
+			Enabled:          true,
+			Target:           99.0,
+			Warning:          99.5,
+			Timeframe:        "-1M",
+			MetricExpression: metricExpr,
+		}
+		return []dynatrace.SLO{slo}, nil
+	}
+
+	multi := len(dd.Thresholds) > 1
+	result := make([]dynatrace.SLO, 0, len(dd.Thresholds))
+
+	for _, thr := range dd.Thresholds {
+		name := dd.Name
+		if multi {
+			name = fmt.Sprintf("%s (%s)", dd.Name, thr.Timeframe)
+		}
+		slo := dynatrace.SLO{
+			Name:             name,
+			Description:      dd.Description + descExtra,
+			EvaluationType:   "AGGREGATE",
+			Enabled:          true,
+			Target:           thr.Target,
+			Warning:          thr.Warning,
+			Timeframe:        mapSLOTimeframe(thr.Timeframe),
+			MetricExpression: metricExpr,
+		}
+		result = append(result, slo)
+	}
+
+	return result, nil
 }
 
 func translateSLOQuery(ddQuery string) string {

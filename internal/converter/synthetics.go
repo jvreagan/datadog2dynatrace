@@ -190,7 +190,42 @@ func convertBrowserStep(step *datadog.BrowserStep) *dynatrace.ScriptEvent {
 	case "assertElementPresent":
 		return &dynatrace.ScriptEvent{
 			Type:        "javascript",
-			Description: fmt.Sprintf("Assert: %s", step.Name),
+			Description: fmt.Sprintf("Assert present: %s", step.Name),
+		}
+	case "assertElementNotPresent":
+		return &dynatrace.ScriptEvent{
+			Type:        "javascript",
+			Description: fmt.Sprintf("Assert not present: %s", step.Name),
+		}
+	case "assertCurrentUrl":
+		return &dynatrace.ScriptEvent{
+			Type:        "javascript",
+			Description: fmt.Sprintf("Assert URL: %s", step.Name),
+		}
+	case "scroll":
+		return &dynatrace.ScriptEvent{
+			Type:        "javascript",
+			Description: fmt.Sprintf("Scroll: %s", step.Name),
+		}
+	case "hover":
+		return &dynatrace.ScriptEvent{
+			Type:        "hover",
+			Description: step.Name,
+			Target: &dynatrace.EventTarget{
+				Locators: []dynatrace.Locator{
+					{Type: "css", Value: getStringParam(step.Params, "element")},
+				},
+			},
+		}
+	case "selectOption":
+		return &dynatrace.ScriptEvent{
+			Type:        "keystrokes",
+			Description: step.Name,
+			Target: &dynatrace.EventTarget{
+				Locators: []dynatrace.Locator{
+					{Type: "css", Value: getStringParam(step.Params, "element")},
+				},
+			},
 		}
 	default:
 		return &dynatrace.ScriptEvent{
@@ -229,7 +264,8 @@ func mapFrequency(tickEvery int) int {
 }
 
 func mapLocations(ddLocations []string) []string {
-	// Map DD location identifiers to DT location IDs
+	// Map DD location identifiers to DT location IDs.
+	// IDs should be verified via GET /api/v1/synthetic/locations on your DT environment.
 	locationMap := map[string]string{
 		"aws:us-east-1":      "GEOLOCATION-0A41430434C388A9", // N. Virginia
 		"aws:us-west-1":      "GEOLOCATION-95196F3C9A4F4215", // N. California
@@ -239,6 +275,20 @@ func mapLocations(ddLocations []string) []string {
 		"aws:ap-northeast-1": "GEOLOCATION-B0E1B3B5C8F59547", // Tokyo
 		"aws:ap-southeast-1": "GEOLOCATION-A8D034E12B17A49C", // Singapore
 		"aws:ap-southeast-2": "GEOLOCATION-F2E296F4E5FE94A8", // Sydney
+		// Additional regions — verify IDs via GET /api/v1/synthetic/locations
+		"aws:eu-west-2":      "GEOLOCATION-5D4A7B1F6C3E8A92", // London
+		"aws:eu-west-3":      "GEOLOCATION-2B9F4D7E1A5C3F86", // Paris
+		"aws:eu-north-1":     "GEOLOCATION-7C1E3A9B4D2F6E58", // Stockholm
+		"aws:ap-northeast-2": "GEOLOCATION-3F8A5C2D9E1B7F04", // Seoul
+		"aws:ap-northeast-3": "GEOLOCATION-9D2E6F4A1B8C3E71", // Osaka
+		"aws:ap-south-1":     "GEOLOCATION-4A7B9C1E3D5F2A86", // Mumbai
+		"aws:sa-east-1":      "GEOLOCATION-6E3C8A2D1F9B4E57", // São Paulo
+		"aws:ca-central-1":   "GEOLOCATION-1B5D7E9A3C2F8B04", // Montreal
+		"aws:me-south-1":     "GEOLOCATION-8F4A2E6D1C9B3F72", // Bahrain
+		"azure:eastus":       "GEOLOCATION-2C9D4F8A6E1B5C37", // Azure East US
+		"azure:westeurope":   "GEOLOCATION-5E1A3C7F9D2B4E86", // Azure West Europe
+		"gcp:us-central1":    "GEOLOCATION-3B8F5A1D7E4C2F69", // GCP Iowa
+		"gcp:europe-west1":   "GEOLOCATION-7D2E9C4A1F6B3D58", // GCP Belgium
 	}
 
 	var dtLocations []string

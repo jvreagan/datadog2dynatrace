@@ -192,6 +192,22 @@ func TestAutoImportUnknown(t *testing.T) {
 	}
 }
 
+func TestAutoImportUnknownLogsWarningAndReturnsNoError(t *testing.T) {
+	dir := t.TempDir()
+	// File whose name doesn't match any known type and whose content has no recognizable keys
+	writeTestFile(t, dir, "mystery_data.json", `{"completely":"unknown","structure":true}`)
+	result, err := ImportFromDirectory(dir)
+	if err != nil {
+		t.Fatalf("expected no error for unknown-format JSON, got: %v", err)
+	}
+	total := len(result.Dashboards) + len(result.Monitors) + len(result.SLOs) +
+		len(result.Synthetics) + len(result.LogPipelines) + len(result.Downtimes) +
+		len(result.Notebooks) + len(result.Notifications)
+	if total != 0 {
+		t.Errorf("expected 0 resources imported from unknown-format JSON, got %d", total)
+	}
+}
+
 // --- Notification import tests ---
 
 func TestImportNotificationsArray(t *testing.T) {

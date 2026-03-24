@@ -56,13 +56,13 @@ func (c *Converter) ConvertAll(ext *datadog.ExtractionResult) (*dynatrace.Conver
 	logging.Info("converting %d SLOs", len(ext.SLOs))
 	for _, s := range ext.SLOs {
 		logging.Debug("converting SLO %q", s.Name)
-		dt, err := ConvertSLO(&s)
+		dts, err := ConvertSLO(&s)
 		if err != nil {
 			logging.Warn("SLO %q: %v", s.Name, err)
 			errs = append(errs, fmt.Errorf("SLO %q: %w", s.Name, err))
 			continue
 		}
-		result.SLOs = append(result.SLOs, *dt)
+		result.SLOs = append(result.SLOs, dts...)
 	}
 
 	logging.Info("converting %d synthetics", len(ext.Synthetics))

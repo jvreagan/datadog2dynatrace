@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/datadog2dynatrace/datadog2dynatrace/internal/datadog"
+	"github.com/datadog2dynatrace/datadog2dynatrace/internal/logging"
 )
 
 // ImportFromDirectory imports DataDog resources from exported JSON files in a directory.
@@ -67,7 +68,7 @@ func importJSONFile(path, name string, result *datadog.ExtractionResult) error {
 		return importNotifications(data, result)
 	default:
 		// Try auto-detection based on content
-		return autoImport(data, result)
+		return autoImport(data, name, result)
 	}
 }
 
@@ -212,7 +213,7 @@ func importNotifications(data []byte, result *datadog.ExtractionResult) error {
 }
 
 // autoImport tries to detect the type of JSON data and import it.
-func autoImport(data []byte, result *datadog.ExtractionResult) error {
+func autoImport(data []byte, filename string, result *datadog.ExtractionResult) error {
 	var raw map[string]interface{}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil // Skip unrecognizable files
@@ -254,5 +255,6 @@ func autoImport(data []byte, result *datadog.ExtractionResult) error {
 		}
 	}
 
-	return nil // Unknown format, skip silently
+	logging.Warn("skipping %s: unrecognized JSON format", filename)
+	return nil
 }

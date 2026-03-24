@@ -28,6 +28,22 @@
       "thresholds": [
         {"timeframe": "30d", "target": 99.5, "warning": 99.7}
       ]
+    },
+    {
+      "id": "slo-003",
+      "name": "Checkout API Availability",
+      "description": "Multi-window SLO for checkout service",
+      "type": "metric",
+      "tags": ["service:checkout", "env:prod"],
+      "query": {
+        "numerator": "sum:trace.servlet.request.hits{service:checkout}.as_count() - sum:trace.servlet.request.errors{service:checkout}.as_count()",
+        "denominator": "sum:trace.servlet.request.hits{service:checkout}.as_count()"
+      },
+      "thresholds": [
+        {"timeframe": "7d",  "target": 99.9, "warning": 99.95},
+        {"timeframe": "30d", "target": 99.5, "warning": 99.7},
+        {"timeframe": "90d", "target": 99.0, "warning": 99.5}
+      ]
     }
   ]
 }

@@ -2063,7 +2063,7 @@ func TestConvertSLO(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			dt, err := ConvertSLO(tt.input)
+			dts, err := ConvertSLO(tt.input)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error, got nil")
@@ -2076,8 +2076,11 @@ func TestConvertSLO(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+			if len(dts) == 0 {
+				t.Fatal("expected at least one SLO in result")
+			}
 			if tt.check != nil {
-				tt.check(t, dt)
+				tt.check(t, &dts[0])
 			}
 		})
 	}
@@ -2353,7 +2356,7 @@ func TestConvertSynthetic(t *testing.T) {
 				Name: "Unknown Loc", Type: "api", Status: "live",
 				Config:    datadog.SyntheticConfig{Request: &datadog.SyntheticRequest{Method: "GET", URL: "https://unk.test"}},
 				Options:   datadog.SyntheticOptions{TickEvery: 300},
-				Locations: []string{"gcp:us-central1"},
+				Locations: []string{"gcp:unknown-region"},
 			},
 			check: func(t *testing.T, sm *dynatrace.SyntheticMonitor) {
 				if len(sm.Locations) != 1 {
@@ -2361,6 +2364,30 @@ func TestConvertSynthetic(t *testing.T) {
 				}
 				if sm.Locations[0] != "GEOLOCATION-0A41430434C388A9" {
 					t.Errorf("expected N. Virginia default, got %q", sm.Locations[0])
+				}
+			},
+		},
+		{
+			name: "location mapping: new regions all map to GEOLOCATION IDs",
+			input: &datadog.SyntheticTest{
+				Name: "New Regions", Type: "api", Status: "live",
+				Config:  datadog.SyntheticConfig{Request: &datadog.SyntheticRequest{Method: "GET", URL: "https://newloc.test"}},
+				Options: datadog.SyntheticOptions{TickEvery: 300},
+				Locations: []string{
+					"aws:eu-west-2", "aws:eu-west-3", "aws:eu-north-1",
+					"aws:ap-northeast-2", "aws:ap-south-1", "aws:sa-east-1",
+					"aws:ca-central-1", "azure:eastus", "azure:westeurope",
+					"gcp:us-central1", "gcp:europe-west1",
+				},
+			},
+			check: func(t *testing.T, sm *dynatrace.SyntheticMonitor) {
+				if len(sm.Locations) != 11 {
+					t.Errorf("expected 11 locations, got %d", len(sm.Locations))
+				}
+				for _, loc := range sm.Locations {
+					if !strings.HasPrefix(loc, "GEOLOCATION-") {
+						t.Errorf("expected GEOLOCATION- prefix, got %q", loc)
+					}
 				}
 			},
 		},
@@ -2448,6 +2475,113 @@ func TestConvertSynthetic(t *testing.T) {
 				tt.check(t, sm)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Browser step type tests
+// ---------------------------------------------------------------------------
+
+func TestConvertBrowserStepTypes(t *testing.T) {
+	tests := []struct {
+		name      string
+		step      datadog.BrowserStep
+		wantType  string
+		wantDescContains string
+	}{
+		{
+			name:      "scroll step becomes javascript",
+			step:      datadog.BrowserStep{Name: "Scroll down", Type: "scroll"},
+			wantType:  "javascript",
+			wantDescContains: "Scroll:",
+		},
+		{
+			name:      "hover step becomes hover",
+			step:      datadog.BrowserStep{Name: "Hover over menu", Type: "hover", Params: map[string]interface{}{"element": ".nav-menu"}},
+			wantType:  "hover",
+			wantDescContains: "Hover over menu",
+		},
+		{
+			name:      "assertCurrentUrl becomes javascript",
+			step:      datadog.BrowserStep{Name: "Check URL is /home", Type: "assertCurrentUrl"},
+			wantType:  "javascript",
+			wantDescContains: "Assert URL:",
+		},
+		{
+			name:      "assertElementNotPresent becomes javascript",
+			step:      datadog.BrowserStep{Name: "Loading spinner gone", Type: "assertElementNotPresent"},
+			wantType:  "javascript",
+			wantDescContains: "Assert not present:",
+		},
+		{
+			name:      "selectOption becomes keystrokes",
+			step:      datadog.BrowserStep{Name: "Select region", Type: "selectOption", Params: map[string]interface{}{"element": "#region-select"}},
+			wantType:  "keystrokes",
+			wantDescContains: "Select region",
+		},
+		{
+			name:      "unknown step becomes javascript migrated placeholder",
+			step:      datadog.BrowserStep{Name: "Custom step", Type: "customUnknown"},
+			wantType:  "javascript",
+			wantDescContains: "[Migrated]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := convertBrowserStep(&tt.step)
+			if event == nil {
+				t.Fatal("expected non-nil event")
+			}
+			if event.Type != tt.wantType {
+				t.Errorf("type: got %q, want %q", event.Type, tt.wantType)
+			}
+			if tt.wantDescContains != "" && !strings.Contains(event.Description, tt.wantDescContains) {
+				t.Errorf("description %q does not contain %q", event.Description, tt.wantDescContains)
+			}
+		})
+	}
+}
+
+func TestConvertBrowserHoverHasCSSLocator(t *testing.T) {
+	step := &datadog.BrowserStep{
+		Name:   "Hover over button",
+		Type:   "hover",
+		Params: map[string]interface{}{"element": "#submit-btn"},
+	}
+	event := convertBrowserStep(step)
+	if event == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if event.Target == nil || len(event.Target.Locators) == 0 {
+		t.Fatal("expected target with locators")
+	}
+	if event.Target.Locators[0].Type != "css" {
+		t.Errorf("expected css locator, got %q", event.Target.Locators[0].Type)
+	}
+	if event.Target.Locators[0].Value != "#submit-btn" {
+		t.Errorf("expected #submit-btn, got %q", event.Target.Locators[0].Value)
+	}
+}
+
+func TestConvertBrowserSelectOptionHasCSSLocator(t *testing.T) {
+	step := &datadog.BrowserStep{
+		Name:   "Select US",
+		Type:   "selectOption",
+		Params: map[string]interface{}{"element": "#country"},
+	}
+	event := convertBrowserStep(step)
+	if event == nil {
+		t.Fatal("expected non-nil event")
+	}
+	if event.Type != "keystrokes" {
+		t.Errorf("expected keystrokes, got %q", event.Type)
+	}
+	if event.Target == nil || len(event.Target.Locators) == 0 {
+		t.Fatal("expected target with locators")
+	}
+	if event.Target.Locators[0].Value != "#country" {
+		t.Errorf("expected #country, got %q", event.Target.Locators[0].Value)
 	}
 }
 
@@ -4552,83 +4686,6 @@ func TestConvertAssertionTypes(t *testing.T) {
 	}
 }
 
-func TestConvertBrowserStepTypes(t *testing.T) {
-	tests := []struct {
-		name  string
-		input datadog.BrowserStep
-		check func(t *testing.T, e *dynatrace.ScriptEvent)
-	}{
-		{
-			name:  "click step",
-			input: datadog.BrowserStep{Type: "click", Name: "Click Button", Params: map[string]interface{}{"element": "#btn"}},
-			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
-				if e.Type != "click" {
-					t.Errorf("expected click, got %q", e.Type)
-				}
-				if e.Target == nil || len(e.Target.Locators) == 0 {
-					t.Fatal("expected locators")
-				}
-				if e.Target.Locators[0].Value != "#btn" {
-					t.Errorf("expected '#btn', got %q", e.Target.Locators[0].Value)
-				}
-			},
-		},
-		{
-			name:  "typeText step",
-			input: datadog.BrowserStep{Type: "typeText", Name: "Type Username", Params: map[string]interface{}{"element": "#input"}},
-			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
-				if e.Type != "keystrokes" {
-					t.Errorf("expected keystrokes, got %q", e.Type)
-				}
-			},
-		},
-		{
-			name:  "wait step",
-			input: datadog.BrowserStep{Type: "wait", Name: "Wait for page"},
-			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
-				if e.Type != "javascript" {
-					t.Errorf("expected javascript, got %q", e.Type)
-				}
-				if e.Wait == nil {
-					t.Fatal("expected wait config")
-				}
-			},
-		},
-		{
-			name:  "assertElementPresent step",
-			input: datadog.BrowserStep{Type: "assertElementPresent", Name: "Assert Logo"},
-			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
-				if e.Type != "javascript" {
-					t.Errorf("expected javascript, got %q", e.Type)
-				}
-				if !strings.Contains(e.Description, "Assert") {
-					t.Errorf("expected Assert in description")
-				}
-			},
-		},
-		{
-			name:  "unknown step",
-			input: datadog.BrowserStep{Type: "scroll", Name: "Scroll Down"},
-			check: func(t *testing.T, e *dynatrace.ScriptEvent) {
-				if e.Type != "javascript" {
-					t.Errorf("expected javascript, got %q", e.Type)
-				}
-				if !strings.Contains(e.Description, "Migrated") {
-					t.Errorf("expected [Migrated] in description")
-				}
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := convertBrowserStep(&tt.input)
-			if e == nil {
-				t.Fatal("expected non-nil event")
-			}
-			tt.check(t, e)
-		})
-	}
-}
 
 // ---------------------------------------------------------------------------
 // getStringParam and maxInt
@@ -4673,15 +4730,98 @@ func TestConvertSLONoThresholds(t *testing.T) {
 		Description: "test",
 		Query:       &datadog.SLOQuery{Numerator: "sum:requests.success{*}", Denominator: "sum:requests.total{*}"},
 	}
-	dt, err := ConvertSLO(dd)
+	dts, err := ConvertSLO(dd)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if dt.Target != 99.0 {
-		t.Errorf("expected default target 99.0, got %f", dt.Target)
+	if len(dts) != 1 {
+		t.Fatalf("expected 1 SLO, got %d", len(dts))
 	}
-	if dt.Timeframe != "-1M" {
-		t.Errorf("expected default timeframe '-1M', got %q", dt.Timeframe)
+	if dts[0].Target != 99.0 {
+		t.Errorf("expected default target 99.0, got %f", dts[0].Target)
+	}
+	if dts[0].Timeframe != "-1M" {
+		t.Errorf("expected default timeframe '-1M', got %q", dts[0].Timeframe)
+	}
+}
+
+func TestConvertSLOMultiThreshold(t *testing.T) {
+	dd := &datadog.SLO{
+		Name:        "API Availability",
+		Description: "Multi-window SLO",
+		Type:        "metric",
+		Query: &datadog.SLOQuery{
+			Numerator:   "sum:requests.success{*}",
+			Denominator: "sum:requests.total{*}",
+		},
+		Thresholds: []datadog.SLOThreshold{
+			{Timeframe: "7d", Target: 99.9, Warning: 99.95},
+			{Timeframe: "30d", Target: 99.5, Warning: 99.7},
+			{Timeframe: "90d", Target: 99.0, Warning: 99.5},
+		},
+	}
+
+	dts, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dts) != 3 {
+		t.Fatalf("expected 3 SLOs, got %d", len(dts))
+	}
+
+	want := []struct {
+		name      string
+		target    float64
+		warning   float64
+		timeframe string
+	}{
+		{"API Availability (7d)", 99.9, 99.95, "-1w"},
+		{"API Availability (30d)", 99.5, 99.7, "-1M"},
+		{"API Availability (90d)", 99.0, 99.5, "-3M"},
+	}
+
+	for i, w := range want {
+		slo := dts[i]
+		if slo.Name != w.name {
+			t.Errorf("[%d] name: got %q, want %q", i, slo.Name, w.name)
+		}
+		if slo.Target != w.target {
+			t.Errorf("[%d] target: got %f, want %f", i, slo.Target, w.target)
+		}
+		if slo.Warning != w.warning {
+			t.Errorf("[%d] warning: got %f, want %f", i, slo.Warning, w.warning)
+		}
+		if slo.Timeframe != w.timeframe {
+			t.Errorf("[%d] timeframe: got %q, want %q", i, slo.Timeframe, w.timeframe)
+		}
+		if slo.MetricExpression == "" {
+			t.Errorf("[%d] expected non-empty metric expression", i)
+		}
+	}
+}
+
+func TestConvertSLOSingleThresholdNoSuffix(t *testing.T) {
+	dd := &datadog.SLO{
+		Name: "Simple SLO",
+		Type: "metric",
+		Query: &datadog.SLOQuery{
+			Numerator:   "sum:requests.success{*}",
+			Denominator: "sum:requests.total{*}",
+		},
+		Thresholds: []datadog.SLOThreshold{
+			{Timeframe: "30d", Target: 99.9},
+		},
+	}
+	dts, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dts) != 1 {
+		t.Fatalf("expected 1 SLO, got %d", len(dts))
+	}
+	// Single threshold: no suffix
+	if dts[0].Name != "Simple SLO" {
+		t.Errorf("expected name %q, got %q", "Simple SLO", dts[0].Name)
 	}
 }
 
