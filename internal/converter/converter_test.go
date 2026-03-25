@@ -1623,20 +1623,130 @@ func TestConvertMonitor(t *testing.T) {
 			},
 		},
 		{
-			name: "service check maps to ERROR event type",
+			name: "service check produces stub with migration note",
 			input: &datadog.Monitor{
-				Name:  "HTTP Check Failed",
-				Type:  "service check",
-				Query: "avg(last_5m):avg:system.cpu.user{*} > 50",
-				Options: datadog.MonitorOptions{
-					Thresholds: &datadog.Thresholds{
-						Critical: &critical50,
-					},
-				},
+				Name:    "HTTP Check Failed",
+				Type:    "service check",
+				Query:   `"http.can_connect".over("url:https://example.com").by("host","url").last(2).count_by_status()`,
+				Message: "HTTP check is failing.",
+				Tags:    []string{"env:prod"},
 			},
 			check: func(t *testing.T, me *dynatrace.MetricEvent) {
 				if me.EventType != "ERROR" {
 					t.Errorf("expected ERROR event type for service check, got %q", me.EventType)
+				}
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "service check") {
+					t.Errorf("expected migration note mentioning service check, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "Migration Note") {
+					t.Errorf("expected Migration Note header in description, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "event alert produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "Deploy Event Spike",
+				Type:  "event alert",
+				Query: `events('priority:all status:error tags:env:prod').rollup('count').last('10m') > 10`,
+				Tags:  []string{"env:prod"},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "event alert") {
+					t.Errorf("expected migration note mentioning event alert, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "apm alert produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "High APM Latency",
+				Type:  "apm alert",
+				Query: `avg(last_5m):sum:trace.http.request.duration{service:api-gateway}.as_count() > 2000`,
+				Tags:  []string{"service:api-gateway"},
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "apm alert") {
+					t.Errorf("expected migration note mentioning apm alert, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "service anomaly detection") {
+					t.Errorf("expected DT guidance in description, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "rum alert produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "High LCP",
+				Type:  "rum alert",
+				Query: `avg(last_5m):rum("@view.name:homepage").p75(@view.largest_contentful_paint) > 4000`,
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "rum alert") {
+					t.Errorf("expected migration note mentioning rum alert, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "process alert produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "Process Down",
+				Type:  "process alert",
+				Query: `processes(last_5m).filter("command:nginx").rollup('count').last('5m') < 1`,
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "process alert") {
+					t.Errorf("expected migration note mentioning process alert, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "network alert produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "High Network Latency",
+				Type:  "network alert",
+				Query: `avg(last_5m):avg:system.net.tcp.rtt{host:web01} > 500`,
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "network alert") {
+					t.Errorf("expected migration note mentioning network alert, got %q", me.Description)
+				}
+			},
+		},
+		{
+			name: "unknown monitor type produces stub with migration note",
+			input: &datadog.Monitor{
+				Name:  "Future Monitor",
+				Type:  "ci-pipelines alert",
+				Query: `ci-pipelines("service:backend").rollup('count').last('5m') > 10`,
+			},
+			check: func(t *testing.T, me *dynatrace.MetricEvent) {
+				if me.MetricSelector != "builtin:host.availability" {
+					t.Errorf("expected placeholder selector, got %q", me.MetricSelector)
+				}
+				if !strings.Contains(me.Description, "ci-pipelines alert") {
+					t.Errorf("expected monitor type in migration note, got %q", me.Description)
+				}
+				if !strings.Contains(me.Description, "Migration Note") {
+					t.Errorf("expected Migration Note header, got %q", me.Description)
 				}
 			},
 		},

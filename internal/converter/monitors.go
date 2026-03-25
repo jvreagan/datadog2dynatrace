@@ -15,12 +15,41 @@ import (
 // ConvertMonitor converts a DataDog monitor to a Dynatrace metric event.
 func ConvertMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error) {
 	switch dd.Type {
+	case "metric alert", "query alert":
+		return convertMetricMonitor(dd)
 	case "log alert":
 		return convertLogAlertMonitor(dd)
 	case "composite":
 		return convertCompositeMonitor(dd)
-	default: // "metric alert", "query alert", "service check", "event alert"
-		return convertMetricMonitor(dd)
+	case "service check":
+		return convertUnsupportedMonitor(dd, "service check",
+			"DataDog service checks poll agent integrations and report UP/DOWN/WARN status. "+
+				"The check status cannot be expressed as a Dynatrace metric selector. "+
+				"Use Dynatrace host/service availability alerting or create a custom Davis anomaly detector.")
+	case "event alert":
+		return convertUnsupportedMonitor(dd, "event alert",
+			"DataDog event alerts monitor the DataDog event stream. "+
+				"Dynatrace does not have a direct equivalent. "+
+				"Consider using Dynatrace problem alerting or log monitoring rules.")
+	case "apm alert":
+		return convertUnsupportedMonitor(dd, "apm alert",
+			"DataDog APM alerts monitor trace/span metrics such as latency and error rate. "+
+				"Configure a Dynatrace service anomaly detection rule targeting the equivalent service.")
+	case "rum alert":
+		return convertUnsupportedMonitor(dd, "rum alert",
+			"DataDog RUM alerts monitor real user monitoring data. "+
+				"Configure a Dynatrace RUM threshold or session anomaly detection rule.")
+	case "process alert":
+		return convertUnsupportedMonitor(dd, "process alert",
+			"DataDog process monitors track running processes via the Live Process agent. "+
+				"Use Dynatrace process availability monitoring or create a custom metric alert.")
+	case "network alert":
+		return convertUnsupportedMonitor(dd, "network alert",
+			"DataDog network alerts monitor NPM (Network Performance Monitoring) data. "+
+				"Use Dynatrace network monitoring or create a custom metric alert for equivalent host network metrics.")
+	default:
+		return convertUnsupportedMonitor(dd, dd.Type,
+			fmt.Sprintf("Monitor type %q has no direct Dynatrace equivalent. Manual configuration is required.", dd.Type))
 	}
 }
 
@@ -102,6 +131,48 @@ func convertLogAlertMonitor(dd *datadog.Monitor) (*dynatrace.MetricEvent, error)
 			DealertingSamples: 5,
 			AlertCondition:    alertCondition,
 			Threshold:         threshold,
+		},
+	}
+
+	for _, tag := range dd.Tags {
+		parts := strings.SplitN(tag, ":", 2)
+		t := dynatrace.METag{Key: parts[0]}
+		if len(parts) == 2 {
+			t.Value = parts[1]
+		}
+		me.Tags = append(me.Tags, t)
+	}
+
+	return me, nil
+}
+
+// convertUnsupportedMonitor creates a stub metric event for monitor types that cannot
+// be directly translated to a Dynatrace metric selector. The original query and a
+// human-readable migration note are embedded in the description.
+func convertUnsupportedMonitor(dd *datadog.Monitor, typeName, migrationNote string) (*dynatrace.MetricEvent, error) {
+	desc := sanitizeDescription(dd.Message)
+	note := fmt.Sprintf("\n\n--- Migration Note ---\nThis was a DataDog %s monitor.\nOriginal query: %s\n\n%s",
+		typeName, dd.Query, migrationNote)
+	combined := desc + note
+	if len(combined) > 1000 {
+		combined = combined[:997] + "..."
+	}
+
+	me := &dynatrace.MetricEvent{
+		Summary:        dd.Name,
+		Description:    combined,
+		Enabled:        true,
+		EventType:      mapMonitorSeverity(dd.Type),
+		MetricSelector: "builtin:host.availability",
+		AlertCondition: "ABOVE",
+		Threshold:      0,
+		MonitoringStrategy: dynatrace.MonitoringStrategy{
+			Type:              "STATIC_THRESHOLD",
+			Samples:           5,
+			ViolatingSamples:  3,
+			DealertingSamples: 5,
+			AlertCondition:    "ABOVE",
+			Threshold:         0,
 		},
 	}
 
