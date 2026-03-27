@@ -53,13 +53,17 @@ func ConvertSLO(dd *datadog.SLO) ([]dynatrace.SLO, error) {
 		if multi {
 			name = fmt.Sprintf("%s (%s)", dd.Name, thr.Timeframe)
 		}
+		warning := thr.Warning
+		if warning <= thr.Target {
+			warning = thr.Target + 0.5
+		}
 		slo := dynatrace.SLO{
 			Name:             name,
 			Description:      dd.Description + descExtra,
 			EvaluationType:   "AGGREGATE",
 			Enabled:          true,
 			Target:           thr.Target,
-			Warning:          thr.Warning,
+			Warning:          warning,
 			Timeframe:        mapSLOTimeframe(thr.Timeframe),
 			MetricExpression: metricExpr,
 		}

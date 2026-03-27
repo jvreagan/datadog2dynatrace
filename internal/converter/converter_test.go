@@ -4935,6 +4935,75 @@ func TestConvertSLOSingleThresholdNoSuffix(t *testing.T) {
 	}
 }
 
+func TestConvertSLOWarningFallback(t *testing.T) {
+	// When warning is 0 (unset in JSON), default to target + 0.5.
+	dd := &datadog.SLO{
+		Name: "Availability SLO",
+		Type: "metric",
+		Query: &datadog.SLOQuery{
+			Numerator:   "sum:requests.success{*}",
+			Denominator: "sum:requests.total{*}",
+		},
+		Thresholds: []datadog.SLOThreshold{
+			{Timeframe: "30d", Target: 99.0, Warning: 0},
+		},
+	}
+	dts, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(dts) != 1 {
+		t.Fatalf("expected 1 SLO, got %d", len(dts))
+	}
+	if dts[0].Warning != 99.5 {
+		t.Errorf("expected warning fallback 99.5 (target+0.5), got %f", dts[0].Warning)
+	}
+}
+
+func TestConvertSLOWarningBelowTarget(t *testing.T) {
+	// When warning <= target (invalid in DT), default to target + 0.5.
+	dd := &datadog.SLO{
+		Name: "Strict SLO",
+		Type: "metric",
+		Query: &datadog.SLOQuery{
+			Numerator:   "sum:requests.success{*}",
+			Denominator: "sum:requests.total{*}",
+		},
+		Thresholds: []datadog.SLOThreshold{
+			{Timeframe: "7d", Target: 99.9, Warning: 99.5}, // warning < target
+		},
+	}
+	dts, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dts[0].Warning != 100.4 {
+		t.Errorf("expected warning fallback 100.4 (target+0.5), got %f", dts[0].Warning)
+	}
+}
+
+func TestConvertSLOWarningPreservedWhenValid(t *testing.T) {
+	// When warning > target, it should be used as-is.
+	dd := &datadog.SLO{
+		Name: "Well-configured SLO",
+		Type: "metric",
+		Query: &datadog.SLOQuery{
+			Numerator:   "sum:requests.success{*}",
+			Denominator: "sum:requests.total{*}",
+		},
+		Thresholds: []datadog.SLOThreshold{
+			{Timeframe: "30d", Target: 99.0, Warning: 99.7},
+		},
+	}
+	dts, err := ConvertSLO(dd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if dts[0].Warning != 99.7 {
+		t.Errorf("expected warning 99.7 preserved, got %f", dts[0].Warning)
+	}
+}
+
 func TestTranslateSLOQuery(t *testing.T) {
 	// translateSLOQuery converts a DD metric query to DT metric selector
 	got := translateSLOQuery("sum:requests.success{env:prod}")
