@@ -193,7 +193,18 @@ func convertQueryValueWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrai
 }
 
 func convertToplistWidget(w *datadog.Widget, tile *dynatrace.Tile, enableGrail bool) (*dynatrace.Tile, error) {
-	return convertQueryWidget(w, tile, enableGrail, ":sort(value(avg,descending)):limit(10)")
+	t, err := convertQueryWidget(w, tile, enableGrail, "")
+	if err != nil {
+		return nil, err
+	}
+	// Queries from a DD top() call already include sort/limit via ToMetricSelector.
+	// Only append for plain queries that don't already carry it.
+	for i, q := range t.Queries {
+		if !strings.Contains(q.MetricSelector, ":sort(") {
+			t.Queries[i].MetricSelector += ":sort(value(avg,descending)):limit(10)"
+		}
+	}
+	return t, nil
 }
 
 func convertNoteWidget(w *datadog.Widget, tile *dynatrace.Tile) (*dynatrace.Tile, error) {

@@ -47,9 +47,9 @@ func MapFunction(ddFunc string) string {
 		"per_hour":   "rate",
 		// Time shift
 		"timeshift": "timeshift",
-		// Top/bottom
-		"top":    "sort",
-		"bottom": "sort",
+		// Top/bottom — sort/limit handled in ToMetricSelector, not via MapFunction
+		"top":    "",
+		"bottom": "",
 		// Count
 		"count_nonzero":  "count",
 		"count_not_null": "count",
