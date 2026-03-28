@@ -3576,10 +3576,112 @@ func TestConvertNotification(t *testing.T) {
 			},
 		},
 		{
+			name: "microsoft-teams notification",
+			input: &datadog.NotificationChannel{
+				Name: "Teams Alerts",
+				Type: "microsoft-teams",
+				Config: map[string]interface{}{
+					"url": "https://outlook.office.com/webhook/abc/IncomingWebhook/xyz",
+				},
+			},
+			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
+				if ni.Type != "MICROSOFT_TEAMS" {
+					t.Errorf("expected MICROSOFT_TEAMS, got %q", ni.Type)
+				}
+				if ni.Config["url"] != "https://outlook.office.com/webhook/abc/IncomingWebhook/xyz" {
+					t.Errorf("expected url in config, got %v", ni.Config["url"])
+				}
+			},
+		},
+		{
+			name: "msteams alias also maps to MICROSOFT_TEAMS",
+			input: &datadog.NotificationChannel{
+				Name: "Teams Alt",
+				Type: "msteams",
+				Config: map[string]interface{}{
+					"url": "https://outlook.office.com/webhook/def",
+				},
+			},
+			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
+				if ni.Type != "MICROSOFT_TEAMS" {
+					t.Errorf("expected MICROSOFT_TEAMS, got %q", ni.Type)
+				}
+			},
+		},
+		{
+			name: "xmatters notification",
+			input: &datadog.NotificationChannel{
+				Name: "xMatters Oncall",
+				Type: "xmatters",
+				Config: map[string]interface{}{
+					"url": "https://company.xmatters.com/api/xm/1/forms/abc/triggers",
+				},
+			},
+			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
+				if ni.Type != "XMATTERS" {
+					t.Errorf("expected XMATTERS, got %q", ni.Type)
+				}
+				if ni.Config["url"] != "https://company.xmatters.com/api/xm/1/forms/abc/triggers" {
+					t.Errorf("expected url in config, got %v", ni.Config["url"])
+				}
+			},
+		},
+		{
+			name: "jira notification",
+			input: &datadog.NotificationChannel{
+				Name: "Jira Tickets",
+				Type: "jira",
+				Config: map[string]interface{}{
+					"url":          "https://company.atlassian.net",
+					"username":     "svc-datadog",
+					"password":     "secret",
+					"project_key":  "OPS",
+					"issue_type":   "Bug",
+				},
+			},
+			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
+				if ni.Type != "JIRA" {
+					t.Errorf("expected JIRA, got %q", ni.Type)
+				}
+				if ni.Config["url"] != "https://company.atlassian.net" {
+					t.Errorf("expected url in config, got %v", ni.Config["url"])
+				}
+				if ni.Config["projectKey"] != "OPS" {
+					t.Errorf("expected project_key mapped to projectKey, got %v", ni.Config["projectKey"])
+				}
+				if ni.Config["issueType"] != "Bug" {
+					t.Errorf("expected issue_type mapped to issueType, got %v", ni.Config["issueType"])
+				}
+			},
+		},
+		{
+			name: "servicenow notification",
+			input: &datadog.NotificationChannel{
+				Name: "ServiceNow Incidents",
+				Type: "servicenow",
+				Config: map[string]interface{}{
+					"url":      "https://company.service-now.com",
+					"username": "svc-datadog",
+					"password": "secret",
+				},
+			},
+			check: func(t *testing.T, ni *dynatrace.NotificationIntegration) {
+				if ni.Type != "SERVICE_NOW" {
+					t.Errorf("expected SERVICE_NOW, got %q", ni.Type)
+				}
+				if ni.Config["url"] != "https://company.service-now.com" {
+					t.Errorf("expected url in config, got %v", ni.Config["url"])
+				}
+				if ni.Config["username"] != "svc-datadog" {
+					t.Errorf("expected username in config, got %v", ni.Config["username"])
+				}
+			},
+		},
+		{
 			name: "unsupported notification type returns error",
 			input: &datadog.NotificationChannel{
-				Name:   "Teams Channel",
-				Type:   "microsoft-teams",
+				Name:   "Unknown Channel",
+				Type:   "hipchat",
 				Config: map[string]interface{}{},
 			},
 			wantErr:    true,

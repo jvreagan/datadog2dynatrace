@@ -61,6 +61,48 @@ func ConvertNotification(dd *datadog.NotificationChannel) (*dynatrace.Notificati
 			ni.Config["apiKey"] = key
 		}
 
+	case "microsoft-teams", "msteams":
+		ni.Type = "MICROSOFT_TEAMS"
+		if url, ok := dd.Config["url"]; ok {
+			ni.Config["url"] = url
+		}
+
+	case "xmatters":
+		ni.Type = "XMATTERS"
+		if url, ok := dd.Config["url"]; ok {
+			ni.Config["url"] = url
+		}
+
+	case "jira":
+		ni.Type = "JIRA"
+		if url, ok := dd.Config["url"]; ok {
+			ni.Config["url"] = url
+		}
+		if user, ok := dd.Config["username"]; ok {
+			ni.Config["username"] = user
+		}
+		if pass, ok := dd.Config["password"]; ok {
+			ni.Config["password"] = pass
+		}
+		if proj, ok := dd.Config["project_key"]; ok {
+			ni.Config["projectKey"] = proj
+		}
+		if issue, ok := dd.Config["issue_type"]; ok {
+			ni.Config["issueType"] = issue
+		}
+
+	case "servicenow":
+		ni.Type = "SERVICE_NOW"
+		if url, ok := dd.Config["url"]; ok {
+			ni.Config["url"] = url
+		}
+		if user, ok := dd.Config["username"]; ok {
+			ni.Config["username"] = user
+		}
+		if pass, ok := dd.Config["password"]; ok {
+			ni.Config["password"] = pass
+		}
+
 	default:
 		return nil, fmt.Errorf("unsupported notification type: %s", dd.Type)
 	}
